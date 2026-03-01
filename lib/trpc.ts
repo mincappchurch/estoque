@@ -34,6 +34,17 @@ export function createTRPCClient() {
           return fetch(url, {
             ...options,
             credentials: "include",
+          }).then(async (response) => {
+            const contentType = response.headers.get("content-type") ?? "";
+            if (contentType.includes("application/json")) {
+              return response;
+            }
+
+            const responseText = await response.text();
+            const preview = responseText.slice(0, 180);
+            throw new Error(
+              `A API retornou resposta inválida (${response.status}). Verifique EXPO_PUBLIC_API_BASE_URL e variáveis do backend. Detalhe: ${preview}`,
+            );
           });
         },
       }),

@@ -1,6 +1,8 @@
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { hasSupabaseAdminConfig } from "./_core/supabase";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import * as db from "./db";
@@ -20,9 +22,17 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ input }) => {
+        if (!hasSupabaseAdminConfig()) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message:
+              "Configuração do Supabase ausente no backend. Defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.",
+          });
+        }
+
         const user = await db.authenticateWithAccessCode(input.code.trim().toUpperCase());
         if (!user) {
-          throw new Error("Código de acesso inválido");
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Código de acesso inválido" });
         }
 
         return {

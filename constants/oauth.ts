@@ -20,6 +20,17 @@ export const OAUTH_SERVER_URL = env.server;
 export const APP_ID = env.appId;
 export const API_BASE_URL = env.apiBaseUrl;
 
+function isUsableApiBaseUrl(value: string): boolean {
+  if (!value) return false;
+  if (value.includes("seu-dominio-api.vercel.app")) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Get the API base URL, deriving from current hostname if not set.
  * Metro runs on 8081, API server runs on 3000.
@@ -27,7 +38,7 @@ export const API_BASE_URL = env.apiBaseUrl;
  */
 export function getApiBaseUrl(): string {
   // If API_BASE_URL is set, use it
-  if (API_BASE_URL) {
+  if (isUsableApiBaseUrl(API_BASE_URL)) {
     return API_BASE_URL.replace(/\/$/, "");
   }
 
