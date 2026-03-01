@@ -5,14 +5,13 @@ import { useAuth } from "@/hooks/use-auth";
 import { useEffect, useState } from "react";
 import * as Auth from "@/lib/_core/auth";
 import { useColors } from "@/hooks/use-colors";
-import { trpc } from "@/lib/trpc";
+import { supabase } from "@/lib/supabase";
 
 export default function LoginScreen() {
   const { isAuthenticated, loading, refresh } = useAuth();
   const [accessCode, setAccessCode] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const colors = useColors();
-  const loginMutation = trpc.auth.loginWithCode.useMutation();
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -28,19 +27,36 @@ export default function LoginScreen() {
 
     try {
       setLoginLoading(true);
-      const result = await loginMutation.mutateAsync({
-        code: accessCode,
+      const normalizedCode = accessCode.trim().toUpperCase();
+
+      const { data, error } = await supabase.rpc("fn_use_access_code", {
+        p_plain_code: normalizedCode,
       });
 
-      await Auth.setSessionToken(result.token);
+      if (error || !Array.isArray(data) || data.length === 0) {
+        throw new Error(error?.message || "Código de acesso inválido");
+      }
+
+      const accessCodeResult = data[0] as {
+        access_code_id: string;
+        label: string;
+      };
+
+      if (!accessCodeResult?.access_code_id) {
+        throw new Error("Código de acesso inválido");
+      }
+
+      const token = `access-token-${accessCodeResult.access_code_id}`;
+
+      await Auth.setSessionToken(token);
 
       const user: Auth.User = {
-        id: result.user.id,
-        openId: result.user.openId ?? `access-code-${result.user.id}`,
-        name: result.user.name ?? "Usuário",
-        email: result.user.email ?? null,
-        loginMethod: result.user.loginMethod ?? "access_code",
-        lastSignedIn: result.user.lastSignedIn ? new Date(result.user.lastSignedIn) : new Date(),
+        id: accessCodeResult.access_code_id,
+        openId: `access-code-${accessCodeResult.access_code_id}`,
+        name: accessCodeResult.label ?? "Usuário",
+        email: null,
+        loginMethod: "access_code",
+        lastSignedIn: new Date(),
       };
       
       // Store user info
@@ -53,7 +69,8 @@ export default function LoginScreen() {
       router.replace("/(tabs)");
     } catch (error) {
       console.error("Login error:", error);
-      Alert.alert("Erro", "Código inválido ou falha ao fazer login");
+      const message = error instanceof Error ? error.message : "Código inválido ou falha ao fazer login";
+      Alert.alert("Erro", message);
     } finally {
       setLoginLoading(false);
     }

@@ -21,6 +21,15 @@ export function useAuth(options?: UseAuthOptions) {
 
       // Web platform: use cookie-based auth, fetch user from API
       if (Platform.OS === "web") {
+        const sessionToken = await Auth.getSessionToken();
+        const cachedUser = await Auth.getUserInfo();
+
+        if (sessionToken && cachedUser) {
+          console.log("[useAuth] Web: using local session/token cache");
+          setUser(cachedUser);
+          return;
+        }
+
         console.log("[useAuth] Web platform: fetching user from API...");
         const apiUser = await Api.getMe();
         console.log("[useAuth] API user response:", apiUser);
