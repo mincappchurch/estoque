@@ -2,29 +2,46 @@ import { View, Text, TouchableOpacity, Alert, ScrollView } from "react-native";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
-import { trpc } from "@/lib/trpc";
 import { router } from "expo-router";
 import { useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "@/lib/supabase";
 
 export default function BackupScreen() {
   const colors = useColors();
   const [loading, setLoading] = useState(false);
-  const exportBackup = trpc.backup.export.useQuery();
 
   const handleExportBackup = async () => {
     try {
       setLoading(true);
-      const data = await exportBackup.refetch();
-      
-      if (!data.data) {
+
+      const [categoriesRes, teamsRes, unitsRes, productsRes, movementsRes] = await Promise.all([
+        supabase.from("categories").select("*"),
+        supabase.from("teams").select("*"),
+        supabase.from("units").select("*"),
+        supabase.from("products").select("*"),
+        supabase.from("movements").select("*"),
+      ]);
+
+      if (categoriesRes.error || teamsRes.error || unitsRes.error || productsRes.error || movementsRes.error) {
         Alert.alert("Erro", "Não foi possível gerar o backup");
         return;
       }
 
+      const backupData = {
+        timestamp: new Date().toISOString(),
+        data: {
+          categories: categoriesRes.data ?? [],
+          teams: teamsRes.data ?? [],
+          units: unitsRes.data ?? [],
+          products: productsRes.data ?? [],
+          movements: movementsRes.data ?? [],
+        },
+      };
+
       // Save backup to AsyncStorage
       const backupKey = `backup_${new Date().toISOString()}`;
-      await AsyncStorage.setItem(backupKey, JSON.stringify(data.data));
+      await AsyncStorage.setItem(backupKey, JSON.stringify(backupData));
 
       Alert.alert(
         "Backup Criado",

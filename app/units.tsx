@@ -1,14 +1,46 @@
 import { View, Text, TouchableOpacity, FlatList, ActivityIndicator } from "react-native";
+import { useEffect, useState } from "react";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import { trpc } from "@/lib/trpc";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { supabase } from "@/lib/supabase";
+
+type UnitItem = {
+  id: string;
+  name: string;
+  abbreviation: string;
+};
 
 export default function UnitsScreen() {
   const router = useRouter();
   const colors = useColors();
-  const { data: units, isLoading } = trpc.units.list.useQuery();
+  const [units, setUnits] = useState<UnitItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadUnits = async () => {
+      setIsLoading(true);
+      setErrorMessage(null);
+      const { data, error } = await supabase
+        .from("units")
+        .select("id, name, abbreviation")
+        .order("name", { ascending: true });
+
+      if (error) {
+        setErrorMessage(error.message);
+        setUnits([]);
+        setIsLoading(false);
+        return;
+      }
+
+      setUnits((data ?? []) as UnitItem[]);
+      setIsLoading(false);
+    };
+
+    loadUnits();
+  }, []);
 
   return (
     <ScreenContainer>
@@ -59,6 +91,10 @@ export default function UnitsScreen() {
         {isLoading ? (
           <View className="flex-1 items-center justify-center">
             <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : errorMessage ? (
+          <View className="flex-1 items-center justify-center p-6">
+            <Text className="text-warning text-center">Erro ao carregar unidades: {errorMessage}</Text>
           </View>
         ) : (
           <FlatList

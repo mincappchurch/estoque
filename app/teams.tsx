@@ -1,14 +1,46 @@
 import { View, Text, TouchableOpacity, FlatList, ActivityIndicator } from "react-native";
+import { useEffect, useState } from "react";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import { trpc } from "@/lib/trpc";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { supabase } from "@/lib/supabase";
+
+type TeamItem = {
+  id: string;
+  name: string;
+  description: string | null;
+};
 
 export default function TeamsScreen() {
   const router = useRouter();
   const colors = useColors();
-  const { data: teams, isLoading } = trpc.teams.list.useQuery();
+  const [teams, setTeams] = useState<TeamItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadTeams = async () => {
+      setIsLoading(true);
+      setErrorMessage(null);
+      const { data, error } = await supabase
+        .from("teams")
+        .select("id, name, description")
+        .order("name", { ascending: true });
+
+      if (error) {
+        setErrorMessage(error.message);
+        setTeams([]);
+        setIsLoading(false);
+        return;
+      }
+
+      setTeams((data ?? []) as TeamItem[]);
+      setIsLoading(false);
+    };
+
+    loadTeams();
+  }, []);
 
   return (
     <ScreenContainer>
@@ -59,6 +91,10 @@ export default function TeamsScreen() {
         {isLoading ? (
           <View className="flex-1 items-center justify-center">
             <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : errorMessage ? (
+          <View className="flex-1 items-center justify-center p-6">
+            <Text className="text-warning text-center">Erro ao carregar times: {errorMessage}</Text>
           </View>
         ) : (
           <FlatList

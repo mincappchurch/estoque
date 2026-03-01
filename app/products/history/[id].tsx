@@ -5,24 +5,95 @@ import {
   ActivityIndicator,
   FlatList,
 } from "react-native";
+import { useEffect, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import { trpc } from "@/lib/trpc";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { supabase } from "@/lib/supabase";
+
+type ProductData = {
+  id: string;
+  name: string;
+  unitId: string;
+  currentQuantity: string;
+};
+
+type MovementData = {
+  id: string;
+  type: "entry" | "withdrawal";
+  quantity: string;
+  volunteerName: string | null;
+  teamId: string | null;
+  serviceTime: string | null;
+  notes: string | null;
+  createdAt: string;
+};
+
+type TeamData = { id: string; name: string };
+type UnitData = { id: string; abbreviation: string };
 
 export default function ProductHistoryScreen() {
   const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
   const productId = id;
 
-  const { data: product, isLoading: productLoading } = trpc.products.getById.useQuery({ id: productId });
-  const { data: movements, isLoading: movementsLoading } = trpc.movements.getByProduct.useQuery({ 
-    productId,
-    limit: 100 
-  });
-  const { data: teams } = trpc.teams.list.useQuery();
-  const { data: units } = trpc.units.list.useQuery();
+  const [product, setProduct] = useState<ProductData | null>(null);
+  const [movements, setMovements] = useState<MovementData[]>([]);
+  const [teams, setTeams] = useState<TeamData[]>([]);
+  const [units, setUnits] = useState<UnitData[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      if (!productId) return;
+      setLoading(true);
+
+      const [
+        { data: productRow },
+        { data: movementRows },
+        { data: teamRows },
+        { data: unitRows },
+      ] = await Promise.all([
+        supabase.from("products").select("id, name, unit_id, current_quantity").eq("id", productId).single(),
+        supabase
+          .from("movements")
+          .select("id, type, quantity, volunteer_name, team_id, service_time, notes, created_at")
+          .eq("product_id", productId)
+          .order("created_at", { ascending: false })
+          .limit(100),
+        supabase.from("teams").select("id, name").order("name", { ascending: true }),
+        supabase.from("units").select("id, abbreviation").order("name", { ascending: true }),
+      ]);
+
+      if (productRow) {
+        setProduct({
+          id: productRow.id,
+          name: productRow.name,
+          unitId: productRow.unit_id,
+          currentQuantity: productRow.current_quantity,
+        });
+      }
+
+      const normalizedMovements = (movementRows ?? []).map((row: any) => ({
+        id: row.id,
+        type: row.type,
+        quantity: row.quantity,
+        volunteerName: row.volunteer_name,
+        teamId: row.team_id,
+        serviceTime: row.service_time,
+        notes: row.notes,
+        createdAt: row.created_at,
+      })) as MovementData[];
+
+      setMovements(normalizedMovements);
+      setTeams((teamRows ?? []) as TeamData[]);
+      setUnits((unitRows ?? []) as UnitData[]);
+      setLoading(false);
+    };
+
+    loadData();
+  }, [productId]);
 
   const getTeamName = (teamId?: string | null) => {
     if (!teamId) return "-";
@@ -44,7 +115,7 @@ export default function ProductHistoryScreen() {
     });
   };
 
-  if (productLoading || movementsLoading) {
+  if (loading) {
     return (
       <ScreenContainer className="items-center justify-center">
         <ActivityIndicator size="large" color={colors.primary} />

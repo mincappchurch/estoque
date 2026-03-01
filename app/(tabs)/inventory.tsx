@@ -8,22 +8,75 @@ import {
   FlatList,
   Image,
 } from "react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import { trpc } from "@/lib/trpc";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import type { Product } from "@/drizzle/schema";
+import { supabase } from "@/lib/supabase";
+
+type CategoryOption = { id: string; name: string };
+type UnitOption = { id: string; abbreviation: string };
 
 export default function InventoryScreen() {
   const colors = useColors();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [units, setUnits] = useState<UnitOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingError, setLoadingError] = useState<string | null>(null);
 
-  const { data: products, isLoading: productsLoading } = trpc.products.list.useQuery();
-  const { data: categories, isLoading: categoriesLoading } = trpc.categories.list.useQuery();
-  const { data: units } = trpc.units.list.useQuery();
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      setLoadingError(null);
+      const [productsResult, categoriesResult, unitsResult] = await Promise.all([
+        supabase.from("products").select("*").order("name", { ascending: true }),
+        supabase.from("categories").select("id, name").order("name", { ascending: true }),
+        supabase.from("units").select("id, abbreviation").order("name", { ascending: true }),
+      ]);
+
+      if (productsResult.error || categoriesResult.error || unitsResult.error) {
+        setLoadingError(
+          productsResult.error?.message || categoriesResult.error?.message || unitsResult.error?.message || "Erro ao carregar estoque",
+        );
+        setProducts([]);
+        setCategories([]);
+        setUnits([]);
+        setLoading(false);
+        return;
+      }
+
+      const productsData = productsResult.data;
+      const categoriesData = categoriesResult.data;
+      const unitsData = unitsResult.data;
+
+      const normalizedProducts = (productsData ?? []).map((row: any) => ({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        categoryId: row.category_id,
+        unitId: row.unit_id,
+        currentQuantity: row.current_quantity,
+        minimumStock: row.minimum_stock,
+        unitCost: row.unit_cost,
+        maxWithdrawalLimit: row.max_withdrawal_limit,
+        photoUrl: row.photo_url,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at),
+      })) as Product[];
+
+      setProducts(normalizedProducts);
+      setCategories((categoriesData ?? []) as CategoryOption[]);
+      setUnits((unitsData ?? []) as UnitOption[]);
+      setLoading(false);
+    };
+
+    loadData();
+  }, []);
 
   const filteredProducts = products?.filter((product) => {
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -43,10 +96,18 @@ export default function InventoryScreen() {
     return parseFloat(product.currentQuantity) <= parseFloat(product.minimumStock);
   };
 
-  if (productsLoading || categoriesLoading) {
+  if (loading) {
     return (
       <ScreenContainer className="items-center justify-center">
         <ActivityIndicator size="large" color={colors.primary} />
+      </ScreenContainer>
+    );
+  }
+
+  if (loadingError) {
+    return (
+      <ScreenContainer className="items-center justify-center p-6">
+        <Text className="text-warning text-center">Erro ao carregar listagem: {loadingError}</Text>
       </ScreenContainer>
     );
   }

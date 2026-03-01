@@ -8,17 +8,39 @@ import {
   Alert,
   Platform,
 } from "react-native";
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ScreenContainer } from "@/components/screen-container";
-import { trpc } from "@/lib/trpc";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import { printToFileAsync } from "expo-print";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import { supabase } from "@/lib/supabase";
 
 type ReportType = "general" | "service" | "team" | "stock";
+
+type TeamItem = { id: string; name: string };
+type UnitItem = { id: string; abbreviation: string };
+type CategoryItem = { id: string; name: string };
+type ProductItem = {
+  id: string;
+  name: string;
+  categoryId: string;
+  unitId: string;
+  currentQuantity: string;
+  minimumStock: string;
+};
+type MovementItem = {
+  id: string;
+  productId: string;
+  quantity: string;
+  volunteerName: string | null;
+  teamId: string | null;
+  serviceTime: string | null;
+  notes: string | null;
+  createdAt: string;
+};
 
 export default function ReportsScreen() {
   const colors = useColors();
@@ -32,33 +54,144 @@ export default function ReportsScreen() {
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [teams, setTeams] = useState<TeamItem[]>([]);
+  const [products, setProducts] = useState<ProductItem[]>([]);
+  const [units, setUnits] = useState<UnitItem[]>([]);
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [serviceMovements, setServiceMovements] = useState<MovementItem[]>([]);
+  const [generalMovements, setGeneralMovements] = useState<MovementItem[]>([]);
+  const [teamMovements, setTeamMovements] = useState<MovementItem[]>([]);
+  const [serviceLoading, setServiceLoading] = useState(false);
+  const [generalLoading, setGeneralLoading] = useState(false);
+  const [teamLoading, setTeamLoading] = useState(false);
 
   // Convert timestamps to Date objects with useMemo to prevent re-renders
   const startDate = useMemo(() => new Date(startTimestamp), [startTimestamp]);
   const endDate = useMemo(() => new Date(endTimestamp), [endTimestamp]);
 
-  const { data: teams } = trpc.teams.list.useQuery();
-  const { data: products } = trpc.products.list.useQuery();
-  const { data: units } = trpc.units.list.useQuery();
-  const { data: categories } = trpc.categories.list.useQuery();
+  useEffect(() => {
+    const loadBaseData = async () => {
+      const [{ data: teamsData }, { data: productsData }, { data: unitsData }, { data: categoriesData }] = await Promise.all([
+        supabase.from("teams").select("id, name").order("name", { ascending: true }),
+        supabase.from("products").select("id, name, category_id, unit_id, current_quantity, minimum_stock").order("name", { ascending: true }),
+        supabase.from("units").select("id, abbreviation").order("name", { ascending: true }),
+        supabase.from("categories").select("id, name").order("name", { ascending: true }),
+      ]);
 
-  // Query based on report type
-  const { data: serviceMovements, isLoading: serviceLoading } =
-    trpc.movements.getByServiceTime.useQuery(
-      { serviceTime: selectedService as any, date: new Date() },
-      { enabled: reportType === "service", staleTime: 30000, refetchOnMount: false, refetchOnWindowFocus: false }
-    );
+      setTeams((teamsData ?? []) as TeamItem[]);
+      setUnits((unitsData ?? []) as UnitItem[]);
+      setCategories((categoriesData ?? []) as CategoryItem[]);
 
-   const { data: generalMovements, isLoading: generalLoading } = 
-    trpc.movements.getByDateRange.useQuery(
-      { startDate, endDate },
-      { enabled: reportType === "general", staleTime: 30000, refetchOnMount: false, refetchOnWindowFocus: false }
-    );
+      const normalizedProducts = (productsData ?? []).map((row: any) => ({
+        id: row.id,
+        name: row.name,
+        categoryId: row.category_id,
+        unitId: row.unit_id,
+        currentQuantity: row.current_quantity,
+        minimumStock: row.minimum_stock,
+      })) as ProductItem[];
+      setProducts(normalizedProducts);
+    };
 
-  const { data: teamMovements, isLoading: teamLoading } = trpc.movements.getByTeam.useQuery(
-    { teamId: selectedTeam!, startDate, endDate },
-    { enabled: reportType === "team" && selectedTeam !== null, staleTime: 30000, refetchOnMount: false, refetchOnWindowFocus: false }
-  );
+    loadBaseData();
+  }, []);
+
+  useEffect(() => {
+    const loadServiceMovements = async () => {
+      if (reportType !== "service") return;
+      setServiceLoading(true);
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
+
+      const { data } = await supabase
+        .from("movements")
+        .select("id, product_id, quantity, volunteer_name, team_id, service_time, notes, created_at")
+        .eq("service_time", selectedService)
+        .eq("type", "withdrawal")
+        .gte("created_at", todayStart.toISOString())
+        .lte("created_at", todayEnd.toISOString())
+        .order("created_at", { ascending: false });
+
+      const normalized = (data ?? []).map((row: any) => ({
+        id: row.id,
+        productId: row.product_id,
+        quantity: row.quantity,
+        volunteerName: row.volunteer_name,
+        teamId: row.team_id,
+        serviceTime: row.service_time,
+        notes: row.notes,
+        createdAt: row.created_at,
+      })) as MovementItem[];
+
+      setServiceMovements(normalized);
+      setServiceLoading(false);
+    };
+
+    loadServiceMovements();
+  }, [reportType, selectedService]);
+
+  useEffect(() => {
+    const loadGeneralMovements = async () => {
+      if (reportType !== "general") return;
+      setGeneralLoading(true);
+      const { data } = await supabase
+        .from("movements")
+        .select("id, product_id, quantity, volunteer_name, team_id, service_time, notes, created_at")
+        .eq("type", "withdrawal")
+        .gte("created_at", startDate.toISOString())
+        .lte("created_at", endDate.toISOString())
+        .order("created_at", { ascending: false });
+
+      const normalized = (data ?? []).map((row: any) => ({
+        id: row.id,
+        productId: row.product_id,
+        quantity: row.quantity,
+        volunteerName: row.volunteer_name,
+        teamId: row.team_id,
+        serviceTime: row.service_time,
+        notes: row.notes,
+        createdAt: row.created_at,
+      })) as MovementItem[];
+
+      setGeneralMovements(normalized);
+      setGeneralLoading(false);
+    };
+
+    loadGeneralMovements();
+  }, [reportType, startDate, endDate]);
+
+  useEffect(() => {
+    const loadTeamMovements = async () => {
+      if (reportType !== "team" || !selectedTeam) return;
+      setTeamLoading(true);
+      const { data } = await supabase
+        .from("movements")
+        .select("id, product_id, quantity, volunteer_name, team_id, service_time, notes, created_at")
+        .eq("type", "withdrawal")
+        .eq("team_id", selectedTeam)
+        .gte("created_at", startDate.toISOString())
+        .lte("created_at", endDate.toISOString())
+        .order("created_at", { ascending: false });
+
+      const normalized = (data ?? []).map((row: any) => ({
+        id: row.id,
+        productId: row.product_id,
+        quantity: row.quantity,
+        volunteerName: row.volunteer_name,
+        teamId: row.team_id,
+        serviceTime: row.service_time,
+        notes: row.notes,
+        createdAt: row.created_at,
+      })) as MovementItem[];
+
+      setTeamMovements(normalized);
+      setTeamLoading(false);
+    };
+
+    loadTeamMovements();
+  }, [reportType, selectedTeam, startDate, endDate]);
 
   const serviceTimes = ["08:30", "11:00", "17:00", "19:30"];
 
