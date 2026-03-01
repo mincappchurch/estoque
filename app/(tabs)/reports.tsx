@@ -24,7 +24,7 @@ export default function ReportsScreen() {
   const colors = useColors();
   const [reportType, setReportType] = useState<ReportType>("general");
   const [selectedService, setSelectedService] = useState<string>("08:30");
-  const [selectedTeam, setSelectedTeam] = useState<number | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
   
   // Date filters - use timestamps to avoid object reference issues
   const [startTimestamp, setStartTimestamp] = useState<number>(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -62,17 +62,17 @@ export default function ReportsScreen() {
 
   const serviceTimes = ["08:30", "11:00", "17:00", "19:30"];
 
-  const getProductName = (productId: number) => {
+  const getProductName = (productId: string) => {
     return products?.find((p) => p.id === productId)?.name || "Produto desconhecido";
   };
 
-  const getUnitName = (productId: number) => {
+  const getUnitName = (productId: string) => {
     const product = products?.find((p) => p.id === productId);
     if (!product) return "";
     return units?.find((u) => u.id === product.unitId)?.abbreviation || "";
   };
 
-  const getTeamName = (teamId: number | null) => {
+  const getTeamName = (teamId: string | null) => {
     if (!teamId) return "N/A";
     return teams?.find((t) => t.id === teamId)?.name || "N/A";
   };

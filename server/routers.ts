@@ -6,11 +6,31 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import * as db from "./db";
 import { storagePut } from "./storage";
 
+const uuidSchema = z.string().uuid();
+
 export const appRouter = router({
   // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
+    loginWithCode: publicProcedure
+      .input(
+        z.object({
+          code: z.string().min(1),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const user = await db.authenticateWithAccessCode(input.code.trim().toUpperCase());
+        if (!user) {
+          throw new Error("Código de acesso inválido");
+        }
+
+        return {
+          success: true,
+          token: `access-token-${user.id}`,
+          user,
+        };
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -29,7 +49,7 @@ export const appRouter = router({
     }),
 
     getById: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: uuidSchema }))
       .query(async ({ input }) => {
         return await db.getCategoryById(input.id);
       }),
@@ -49,7 +69,7 @@ export const appRouter = router({
     update: protectedProcedure
       .input(
         z.object({
-          id: z.number(),
+          id: uuidSchema,
           name: z.string().min(1).max(100).optional(),
           description: z.string().optional(),
         })
@@ -61,7 +81,7 @@ export const appRouter = router({
       }),
 
     delete: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: uuidSchema }))
       .mutation(async ({ input }) => {
         await db.deleteCategory(input.id);
         return { success: true };
@@ -77,7 +97,7 @@ export const appRouter = router({
     }),
 
     getById: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: uuidSchema }))
       .query(async ({ input }) => {
         return await db.getTeamById(input.id);
       }),
@@ -97,7 +117,7 @@ export const appRouter = router({
     update: protectedProcedure
       .input(
         z.object({
-          id: z.number(),
+          id: uuidSchema,
           name: z.string().min(1).max(100).optional(),
           description: z.string().optional(),
         })
@@ -109,7 +129,7 @@ export const appRouter = router({
       }),
 
     delete: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: uuidSchema }))
       .mutation(async ({ input }) => {
         await db.deleteTeam(input.id);
         return { success: true };
@@ -137,7 +157,7 @@ export const appRouter = router({
       }),
 
     delete: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: uuidSchema }))
       .mutation(async ({ input }) => {
         await db.deleteUnit(input.id);
         return { success: true };
@@ -158,13 +178,13 @@ export const appRouter = router({
     }),
 
     getById: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: uuidSchema }))
       .query(async ({ input }) => {
         return await db.getProductById(input.id);
       }),
 
     getByCategory: protectedProcedure
-      .input(z.object({ categoryId: z.number() }))
+      .input(z.object({ categoryId: uuidSchema }))
       .query(async ({ input }) => {
         return await db.getProductsByCategory(input.categoryId);
       }),
@@ -178,8 +198,8 @@ export const appRouter = router({
         z.object({
           name: z.string().min(1).max(255),
           description: z.string().optional(),
-          categoryId: z.number(),
-          unitId: z.number(),
+          categoryId: uuidSchema,
+          unitId: uuidSchema,
           currentQuantity: z.string(),
           minimumStock: z.string(),
           unitCost: z.string().optional(),
@@ -195,11 +215,11 @@ export const appRouter = router({
     update: protectedProcedure
       .input(
         z.object({
-          id: z.number(),
+          id: uuidSchema,
           name: z.string().min(1).max(255).optional(),
           description: z.string().optional(),
-          categoryId: z.number().optional(),
-          unitId: z.number().optional(),
+          categoryId: uuidSchema.optional(),
+          unitId: uuidSchema.optional(),
           currentQuantity: z.string().optional(),
           minimumStock: z.string().optional(),
           unitCost: z.string().optional(),
@@ -214,7 +234,7 @@ export const appRouter = router({
       }),
 
     delete: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: uuidSchema }))
       .mutation(async ({ input }) => {
         await db.deleteProduct(input.id);
         return { success: true };
@@ -244,7 +264,7 @@ export const appRouter = router({
     }),
 
     getByProduct: protectedProcedure
-      .input(z.object({ productId: z.number(), limit: z.number().optional() }))
+      .input(z.object({ productId: uuidSchema, limit: z.number().optional() }))
       .query(async ({ input }) => {
         return await db.getMovementsByProduct(input.productId, input.limit);
       }),
@@ -274,7 +294,7 @@ export const appRouter = router({
     getByTeam: protectedProcedure
       .input(
         z.object({
-          teamId: z.number(),
+          teamId: uuidSchema,
           startDate: z.date().optional(),
           endDate: z.date().optional(),
         })
@@ -286,7 +306,7 @@ export const appRouter = router({
     createEntry: protectedProcedure
       .input(
         z.object({
-          productId: z.number(),
+          productId: uuidSchema,
           quantity: z.string(),
           notes: z.string().optional(),
         })
@@ -305,10 +325,10 @@ export const appRouter = router({
     createWithdrawal: protectedProcedure
       .input(
         z.object({
-          productId: z.number(),
+          productId: uuidSchema,
           quantity: z.string(),
           volunteerName: z.string().min(1),
-          teamId: z.number(),
+          teamId: uuidSchema,
           serviceTime: z.enum(["08:30", "11:00", "17:00", "19:30"]),
           notes: z.string().optional(),
         })
@@ -406,7 +426,7 @@ export const appRouter = router({
         z.object({
           type: z.enum(["service", "team", "period"]),
           serviceTime: z.string().optional(),
-          teamId: z.number().optional(),
+          teamId: uuidSchema.optional(),
           startDate: z.string().optional(),
           endDate: z.string().optional(),
         })
@@ -438,7 +458,7 @@ export const appRouter = router({
         z.object({
           type: z.enum(["entry", "exit", "all"]).optional(),
           serviceTime: z.string().optional(),
-          teamId: z.number().optional(),
+          teamId: uuidSchema.optional(),
           startDate: z.string().optional(),
           endDate: z.string().optional(),
         })

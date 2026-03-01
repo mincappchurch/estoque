@@ -18,7 +18,7 @@ export default function EditProductScreen() {
   const colors = useColors();
   const utils = trpc.useUtils();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const productId = parseInt(id);
+  const productId = id;
 
   const { data: product, isLoading } = trpc.products.getById.useQuery({ id: productId });
   const { data: categories } = trpc.categories.list.useQuery();
@@ -26,8 +26,8 @@ export default function EditProductScreen() {
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
-  const [selectedUnit, setSelectedUnit] = useState<number | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
   const [minimumStock, setMinimumStock] = useState("");
   const [unitCost, setUnitCost] = useState("");
   const [maxWithdrawalLimit, setMaxWithdrawalLimit] = useState("");

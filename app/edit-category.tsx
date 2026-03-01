@@ -10,7 +10,7 @@ export default function EditCategoryScreen() {
   const router = useRouter();
   const colors = useColors();
   const params = useLocalSearchParams<{ id: string }>();
-  const categoryId = parseInt(params.id);
+  const categoryId = params.id;
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");

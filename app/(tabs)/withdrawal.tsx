@@ -21,7 +21,7 @@ export default function WithdrawalScreen() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [quantity, setQuantity] = useState("");
   const [volunteerName, setVolunteerName] = useState("");
-  const [selectedTeam, setSelectedTeam] = useState<number | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
   const [selectedService, setSelectedService] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [showProductList, setShowProductList] = useState(false);
@@ -51,7 +51,7 @@ export default function WithdrawalScreen() {
 
   const serviceTimes = ["08:30", "11:00", "17:00", "19:30"];
 
-  const getUnitName = (unitId: number) => {
+  const getUnitName = (unitId: string) => {
     return units?.find((u) => u.id === unitId)?.abbreviation || "";
   };
 

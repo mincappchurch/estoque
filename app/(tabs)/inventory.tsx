@@ -19,7 +19,7 @@ import type { Product } from "@/drizzle/schema";
 export default function InventoryScreen() {
   const colors = useColors();
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   const { data: products, isLoading: productsLoading } = trpc.products.list.useQuery();
   const { data: categories, isLoading: categoriesLoading } = trpc.categories.list.useQuery();
@@ -31,11 +31,11 @@ export default function InventoryScreen() {
     return matchesSearch && matchesCategory;
   });
 
-  const getUnitName = (unitId: number) => {
+  const getUnitName = (unitId: string) => {
     return units?.find((u) => u.id === unitId)?.abbreviation || "";
   };
 
-  const getCategoryName = (categoryId: number) => {
+  const getCategoryName = (categoryId: string) => {
     return categories?.find((c) => c.id === categoryId)?.name || "";
   };
 
@@ -130,7 +130,7 @@ export default function InventoryScreen() {
         {/* Products List */}
         <FlatList
           data={filteredProducts}
-          keyExtractor={(item) => item.id.toString()}
+          keyExtractor={(item) => item.id}
           contentContainerStyle={{ padding: 24, gap: 12 }}
           ListEmptyComponent={
             <View className="items-center justify-center py-12">

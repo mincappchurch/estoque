@@ -1,39 +1,149 @@
-import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import {
-  InsertUser,
-  users,
-  categories,
+import type {
   Category,
   InsertCategory,
-  teams,
-  Team,
-  InsertTeam,
-  units,
-  Unit,
-  InsertUnit,
-  products,
-  Product,
-  InsertProduct,
-  movements,
-  Movement,
   InsertMovement,
+  InsertProduct,
+  InsertTeam,
+  InsertUnit,
+  InsertUser,
+  Movement,
+  Product,
+  Team,
+  Unit,
+  User,
 } from "../drizzle/schema";
-import { ENV } from "./_core/env";
+import { getSupabaseAdminClient } from "./_core/supabase";
 
-let _db: ReturnType<typeof drizzle> | null = null;
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
-export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
+const SYSTEM_ACCESS_USER_OPEN_ID = "access-user";
+
+function isUuid(value: unknown): value is string {
+  return typeof value === "string" && UUID_REGEX.test(value);
+}
+
+function requiredDb(): any {
+  const db = getSupabaseAdminClient();
+  if (!db) {
+    throw new Error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY");
   }
-  return _db;
+  return db;
+}
+
+function normalizeUser(row: any): User {
+  return {
+    id: row.id,
+    openId: row.open_id,
+    name: row.name,
+    email: row.email,
+    loginMethod: row.login_method,
+    role: row.role,
+    isActive: row.is_active,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+    lastSignedIn: row.last_signed_in ? new Date(row.last_signed_in) : null,
+  };
+}
+
+function normalizeCategory(row: any): Category {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+function normalizeTeam(row: any): Team {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+function normalizeUnit(row: any): Unit {
+  return {
+    id: row.id,
+    name: row.name,
+    abbreviation: row.abbreviation,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+function normalizeProduct(row: any): Product {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    categoryId: row.category_id,
+    unitId: row.unit_id,
+    currentQuantity: row.current_quantity,
+    minimumStock: row.minimum_stock,
+    unitCost: row.unit_cost,
+    maxWithdrawalLimit: row.max_withdrawal_limit,
+    photoUrl: row.photo_url,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+function normalizeMovement(row: any): Movement {
+  return {
+    id: row.id,
+    productId: row.product_id,
+    type: row.type,
+    quantity: row.quantity,
+    volunteerName: row.volunteer_name,
+    teamId: row.team_id,
+    serviceTime: row.service_time,
+    notes: row.notes,
+    userId: row.user_id,
+    createdAt: new Date(row.created_at),
+  };
+}
+
+async function resolveUserId(inputUserId?: string | null): Promise<string> {
+  if (inputUserId && isUuid(inputUserId)) {
+    return inputUserId;
+  }
+
+  const db = requiredDb();
+  const nowIso = new Date().toISOString();
+
+  const payload = {
+    open_id: SYSTEM_ACCESS_USER_OPEN_ID,
+    name: "Usuário",
+    email: "usuario@igreja.com",
+    login_method: "access_code",
+    role: "admin",
+    last_signed_in: nowIso,
+  };
+
+  const { data, error } = await db
+    .from("users")
+    .upsert(payload, { onConflict: "open_id" })
+    .select("id")
+    .single();
+
+  if (error || !data?.id) {
+    throw new Error(error?.message || "Failed to resolve access user");
+  }
+
+  return data.id;
+}
+
+function toIso(date: Date): string {
+  return date.toISOString();
+}
+
+export async function getDb() {
+  return getSupabaseAdminClient();
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -41,348 +151,423 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     throw new Error("User openId is required for upsert");
   }
 
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
-  }
+  const db = requiredDb();
+  const role = user.role ?? "volunteer";
 
-  try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
+  const payload = {
+    open_id: user.openId,
+    name: user.name ?? null,
+    email: user.email ?? null,
+    login_method: user.loginMethod ?? "oauth",
+    role,
+    last_signed_in: user.lastSignedIn ? toIso(new Date(user.lastSignedIn)) : toIso(new Date()),
+  };
 
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = "admin";
-      updateSet.role = "admin";
-    }
-
-    await db
-      .insert(users)
-      .values(values)
-      .onDuplicateKeyUpdate({ set: updateSet });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
+  const { error } = await db.from("users").upsert(payload, { onConflict: "open_id" });
+  if (error) {
+    throw new Error(error.message);
   }
 }
 
-export async function getUserByOpenId(openId: string) {
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
+export async function getUserByOpenId(openId: string): Promise<User | null> {
+  const db = requiredDb();
+  const { data, error } = await db
+    .from("users")
+    .select("id, open_id, name, email, login_method, role, is_active, created_at, updated_at, last_signed_in")
+    .eq("open_id", openId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) {
     return null;
   }
 
-  try {
-    const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-    return result[0] || null;
-  } catch (error) {
-    console.error("[Database] Failed to get user:", error);
-    return null;
-  }
+  return normalizeUser(data);
 }
 
-// ============================================
-// CATEGORIES
-// ============================================
+export async function getUserById(id: string): Promise<User | null> {
+  const db = requiredDb();
+  const { data, error } = await db
+    .from("users")
+    .select("id, open_id, name, email, login_method, role, is_active, created_at, updated_at, last_signed_in")
+    .eq("id", id)
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return normalizeUser(data);
+}
+
+export async function authenticateWithAccessCode(code: string): Promise<User | null> {
+  const db = requiredDb();
+
+  const { data: result, error } = await db.rpc("fn_use_access_code", {
+    p_plain_code: code,
+  });
+
+  if (error || !Array.isArray(result) || result.length === 0) {
+    return null;
+  }
+
+  const accessCode = result[0] as {
+    access_code_id: string;
+    role: User["role"];
+    label: string;
+  };
+
+  if (!accessCode?.access_code_id) {
+    return null;
+  }
+
+  const openId = `access-code-${accessCode.access_code_id}`;
+  const nowIso = toIso(new Date());
+
+  const { error: upsertError } = await db.from("users").upsert(
+    {
+      open_id: openId,
+      name: accessCode.label,
+      email: null,
+      login_method: "access_code",
+      role: accessCode.role,
+      last_signed_in: nowIso,
+    },
+    { onConflict: "open_id" },
+  );
+
+  if (upsertError) {
+    throw new Error(upsertError.message);
+  }
+
+  return await getUserByOpenId(openId);
+}
 
 export async function getAllCategories(): Promise<Category[]> {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(categories).orderBy(categories.name);
+  const db = requiredDb();
+  const { data, error } = await db.from("categories").select("*").order("name");
+  if (error || !data) return [];
+  return data.map(normalizeCategory);
 }
 
-export async function getCategoryById(id: number): Promise<Category | null> {
-  const db = await getDb();
-  if (!db) return null;
-  const result = await db.select().from(categories).where(eq(categories.id, id)).limit(1);
-  return result[0] || null;
+export async function getCategoryById(id: string): Promise<Category | null> {
+  const db = requiredDb();
+  const { data, error } = await db.from("categories").select("*").eq("id", id).maybeSingle();
+  if (error || !data) return null;
+  return normalizeCategory(data);
 }
 
-export async function createCategory(data: InsertCategory): Promise<number> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const result = await db.insert(categories).values(data);
-  return result[0].insertId;
+export async function createCategory(data: InsertCategory): Promise<string> {
+  const db = requiredDb();
+  const { data: inserted, error } = await db
+    .from("categories")
+    .insert({ name: data.name, description: data.description ?? null })
+    .select("id")
+    .single();
+  if (error || !inserted?.id) throw new Error(error?.message || "Failed to create category");
+  return inserted.id;
 }
 
-export async function updateCategory(id: number, data: Partial<InsertCategory>): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.update(categories).set(data).where(eq(categories.id, id));
+export async function updateCategory(id: string, data: Partial<InsertCategory>): Promise<void> {
+  const db = requiredDb();
+  const { error } = await db
+    .from("categories")
+    .update({
+      name: data.name,
+      description: data.description ?? null,
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
-export async function deleteCategory(id: number): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.delete(categories).where(eq(categories.id, id));
+export async function deleteCategory(id: string): Promise<void> {
+  const db = requiredDb();
+  const { error } = await db.from("categories").delete().eq("id", id);
+  if (error) throw new Error(error.message);
 }
-
-// ============================================
-// TEAMS
-// ============================================
 
 export async function getAllTeams(): Promise<Team[]> {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(teams).orderBy(teams.name);
+  const db = requiredDb();
+  const { data, error } = await db.from("teams").select("*").order("name");
+  if (error || !data) return [];
+  return data.map(normalizeTeam);
 }
 
-export async function getTeamById(id: number): Promise<Team | null> {
-  const db = await getDb();
-  if (!db) return null;
-  const result = await db.select().from(teams).where(eq(teams.id, id)).limit(1);
-  return result[0] || null;
+export async function getTeamById(id: string): Promise<Team | null> {
+  const db = requiredDb();
+  const { data, error } = await db.from("teams").select("*").eq("id", id).maybeSingle();
+  if (error || !data) return null;
+  return normalizeTeam(data);
 }
 
-export async function createTeam(data: InsertTeam): Promise<number> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const result = await db.insert(teams).values(data);
-  return result[0].insertId;
+export async function createTeam(data: InsertTeam): Promise<string> {
+  const db = requiredDb();
+  const { data: inserted, error } = await db
+    .from("teams")
+    .insert({ name: data.name, description: data.description ?? null })
+    .select("id")
+    .single();
+  if (error || !inserted?.id) throw new Error(error?.message || "Failed to create team");
+  return inserted.id;
 }
 
-export async function updateTeam(id: number, data: Partial<InsertTeam>): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.update(teams).set(data).where(eq(teams.id, id));
+export async function updateTeam(id: string, data: Partial<InsertTeam>): Promise<void> {
+  const db = requiredDb();
+  const { error } = await db
+    .from("teams")
+    .update({
+      name: data.name,
+      description: data.description ?? null,
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
-export async function deleteTeam(id: number): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.delete(teams).where(eq(teams.id, id));
+export async function deleteTeam(id: string): Promise<void> {
+  const db = requiredDb();
+  const { error } = await db.from("teams").delete().eq("id", id);
+  if (error) throw new Error(error.message);
 }
-
-// ============================================
-// UNITS
-// ============================================
 
 export async function getAllUnits(): Promise<Unit[]> {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(units).orderBy(units.name);
+  const db = requiredDb();
+  const { data, error } = await db.from("units").select("*").order("name");
+  if (error || !data) return [];
+  return data.map(normalizeUnit);
 }
 
-export async function getUnitById(id: number): Promise<Unit | null> {
-  const db = await getDb();
-  if (!db) return null;
-  const result = await db.select().from(units).where(eq(units.id, id)).limit(1);
-  return result[0] || null;
+export async function getUnitById(id: string): Promise<Unit | null> {
+  const db = requiredDb();
+  const { data, error } = await db.from("units").select("*").eq("id", id).maybeSingle();
+  if (error || !data) return null;
+  return normalizeUnit(data);
 }
 
-export async function createUnit(data: InsertUnit): Promise<number> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const result = await db.insert(units).values(data);
-  return result[0].insertId;
+export async function createUnit(data: InsertUnit): Promise<string> {
+  const db = requiredDb();
+  const { data: inserted, error } = await db
+    .from("units")
+    .insert({
+      name: data.name,
+      abbreviation: data.abbreviation,
+    })
+    .select("id")
+    .single();
+  if (error || !inserted?.id) throw new Error(error?.message || "Failed to create unit");
+  return inserted.id;
 }
 
-export async function deleteUnit(id: number): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.delete(units).where(eq(units.id, id));
+export async function deleteUnit(id: string): Promise<void> {
+  const db = requiredDb();
+  const { error } = await db.from("units").delete().eq("id", id);
+  if (error) throw new Error(error.message);
 }
-
-// ============================================
-// PRODUCTS
-// ============================================
 
 export async function getAllProducts(): Promise<Product[]> {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(products).orderBy(products.name);
+  const db = requiredDb();
+  const { data, error } = await db.from("products").select("*").order("name");
+  if (error || !data) return [];
+  return data.map(normalizeProduct);
 }
 
-export async function getProductById(id: number): Promise<Product | null> {
-  const db = await getDb();
-  if (!db) return null;
-  const result = await db.select().from(products).where(eq(products.id, id)).limit(1);
-  return result[0] || null;
+export async function getProductById(id: string): Promise<Product | null> {
+  const db = requiredDb();
+  const { data, error } = await db.from("products").select("*").eq("id", id).maybeSingle();
+  if (error || !data) return null;
+  return normalizeProduct(data);
 }
 
-export async function getProductsByCategory(categoryId: number): Promise<Product[]> {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(products).where(eq(products.categoryId, categoryId)).orderBy(products.name);
+export async function getProductsByCategory(categoryId: string): Promise<Product[]> {
+  const db = requiredDb();
+  const { data, error } = await db.from("products").select("*").eq("category_id", categoryId).order("name");
+  if (error || !data) return [];
+  return data.map(normalizeProduct);
 }
 
 export async function getLowStockProducts(): Promise<Product[]> {
-  const db = await getDb();
-  if (!db) return [];
-  const allProducts = await db.select().from(products);
-  return allProducts.filter(p => parseFloat(p.currentQuantity) <= parseFloat(p.minimumStock));
+  const allProducts = await getAllProducts();
+  return allProducts.filter((product) => parseFloat(product.currentQuantity) <= parseFloat(product.minimumStock));
 }
 
-export async function createProduct(data: InsertProduct): Promise<number> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const result = await db.insert(products).values(data);
-  return result[0].insertId;
+export async function createProduct(data: InsertProduct): Promise<string> {
+  const db = requiredDb();
+  const { data: inserted, error } = await db
+    .from("products")
+    .insert({
+      name: data.name,
+      description: data.description ?? null,
+      category_id: data.categoryId,
+      unit_id: data.unitId,
+      current_quantity: data.currentQuantity,
+      minimum_stock: data.minimumStock,
+      unit_cost: data.unitCost ?? null,
+      max_withdrawal_limit: data.maxWithdrawalLimit ?? null,
+      photo_url: data.photoUrl ?? null,
+    })
+    .select("id")
+    .single();
+  if (error || !inserted?.id) throw new Error(error?.message || "Failed to create product");
+  return inserted.id;
 }
 
-export async function updateProduct(id: number, data: Partial<InsertProduct>): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.update(products).set(data).where(eq(products.id, id));
+export async function updateProduct(id: string, data: Partial<InsertProduct>): Promise<void> {
+  const db = requiredDb();
+  const payload: Record<string, unknown> = {};
+
+  if (data.name !== undefined) payload.name = data.name;
+  if (data.description !== undefined) payload.description = data.description ?? null;
+  if (data.categoryId !== undefined) payload.category_id = data.categoryId;
+  if (data.unitId !== undefined) payload.unit_id = data.unitId;
+  if (data.currentQuantity !== undefined) payload.current_quantity = data.currentQuantity;
+  if (data.minimumStock !== undefined) payload.minimum_stock = data.minimumStock;
+  if (data.unitCost !== undefined) payload.unit_cost = data.unitCost ?? null;
+  if (data.maxWithdrawalLimit !== undefined) payload.max_withdrawal_limit = data.maxWithdrawalLimit ?? null;
+  if (data.photoUrl !== undefined) payload.photo_url = data.photoUrl ?? null;
+
+  const { error } = await db.from("products").update(payload).eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
-export async function deleteProduct(id: number): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.delete(products).where(eq(products.id, id));
+export async function deleteProduct(id: string): Promise<void> {
+  const db = requiredDb();
+  const { error } = await db.from("products").delete().eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
-export async function updateProductQuantity(productId: number, newQuantity: string): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.update(products).set({ currentQuantity: newQuantity }).where(eq(products.id, productId));
+export async function updateProductQuantity(productId: string, newQuantity: string): Promise<void> {
+  const db = requiredDb();
+  const { error } = await db.from("products").update({ current_quantity: newQuantity }).eq("id", productId);
+  if (error) throw new Error(error.message);
 }
-
-// ============================================
-// MOVEMENTS
-// ============================================
 
 export async function getAllMovements(): Promise<Movement[]> {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(movements).orderBy(movements.createdAt);
+  const db = requiredDb();
+  const { data, error } = await db.from("movements").select("*").order("created_at", { ascending: false });
+  if (error || !data) return [];
+  return data.map(normalizeMovement);
 }
 
-export async function getMovementById(id: number): Promise<Movement | null> {
-  const db = await getDb();
-  if (!db) return null;
-  const result = await db.select().from(movements).where(eq(movements.id, id)).limit(1);
-  return result[0] || null;
+export async function getMovementById(id: string): Promise<Movement | null> {
+  const db = requiredDb();
+  const { data, error } = await db.from("movements").select("*").eq("id", id).maybeSingle();
+  if (error || !data) return null;
+  return normalizeMovement(data);
 }
 
-export async function getMovementsByProduct(productId: number, limit?: number): Promise<Movement[]> {
-  const db = await getDb();
-  if (!db) return [];
-  let query = db.select().from(movements).where(eq(movements.productId, productId)).orderBy(movements.createdAt);
-  if (limit) {
-    query = query.limit(limit) as any;
+export async function getMovementsByProduct(productId: string, limit?: number): Promise<Movement[]> {
+  const db = requiredDb();
+  let query = db
+    .from("movements")
+    .select("*")
+    .eq("product_id", productId)
+    .order("created_at", { ascending: false });
+
+  if (limit && limit > 0) {
+    query = query.limit(limit);
   }
-  return query;
+
+  const { data, error } = await query;
+  if (error || !data) return [];
+  return data.map(normalizeMovement);
 }
 
 export async function getMovementsByDateRange(startDate: Date, endDate: Date): Promise<Movement[]> {
-  const db = await getDb();
-  if (!db) return [];
-  const allMovements = await db.select().from(movements);
-  return allMovements.filter(m => {
-    const movementDate = new Date(m.createdAt);
-    return movementDate >= startDate && movementDate <= endDate;
-  });
+  const db = requiredDb();
+  const { data, error } = await db
+    .from("movements")
+    .select("*")
+    .gte("created_at", toIso(startDate))
+    .lte("created_at", toIso(endDate))
+    .order("created_at", { ascending: false });
+
+  if (error || !data) return [];
+  return data.map(normalizeMovement);
 }
 
 export async function getMovementsByServiceTime(serviceTime: string, date?: Date): Promise<Movement[]> {
-  const db = await getDb();
-  if (!db) return [];
-  const allMovements = await db.select().from(movements);
-  const filtered = allMovements.filter(m => m.serviceTime === serviceTime);
-  
+  const db = requiredDb();
+  let query = db
+    .from("movements")
+    .select("*")
+    .eq("service_time", serviceTime)
+    .order("created_at", { ascending: false });
+
   if (date) {
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
-    
-    return allMovements.filter(m => {
-      const movementDate = new Date(m.createdAt);
-      return movementDate >= startOfDay && movementDate <= endOfDay;
-    });
+
+    query = query.gte("created_at", toIso(startOfDay)).lte("created_at", toIso(endOfDay));
   }
-  
-  return allMovements;
+
+  const { data, error } = await query;
+  if (error || !data) return [];
+  return data.map(normalizeMovement);
 }
 
-export async function getMovementsByTeam(teamId: number, startDate?: Date, endDate?: Date): Promise<Movement[]> {
-  const db = await getDb();
-  if (!db) return [];
-  const allMovements = await db.select().from(movements).where(eq(movements.teamId, teamId));
-  
+export async function getMovementsByTeam(teamId: string, startDate?: Date, endDate?: Date): Promise<Movement[]> {
+  const db = requiredDb();
+  let query = db
+    .from("movements")
+    .select("*")
+    .eq("team_id", teamId)
+    .order("created_at", { ascending: false });
+
   if (startDate && endDate) {
-    return allMovements.filter(m => {
-      const movementDate = new Date(m.createdAt);
-      return movementDate >= startDate && movementDate <= endDate;
-    });
+    query = query.gte("created_at", toIso(startDate)).lte("created_at", toIso(endDate));
   }
-  
-  return allMovements;
+
+  const { data, error } = await query;
+  if (error || !data) return [];
+  return data.map(normalizeMovement);
 }
 
 export async function getTodayWithdrawals(): Promise<number> {
-  const db = await getDb();
-  if (!db) return 0;
+  const db = requiredDb();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  
-  const allMovements = await db.select().from(movements);
-  const todayMovements = allMovements.filter(m => {
-    const movementDate = new Date(m.createdAt);
-    return movementDate >= today && movementDate < tomorrow && m.type === 'withdrawal';
-  });
-  
-  return todayMovements.length;
+
+  const { count, error } = await db
+    .from("movements")
+    .select("id", { count: "exact", head: true })
+    .eq("type", "withdrawal")
+    .gte("created_at", toIso(today));
+
+  if (error) {
+    return 0;
+  }
+
+  return count ?? 0;
 }
 
-export async function createMovement(data: InsertMovement): Promise<number> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  
-  // Create movement record
-  const result = await db.insert(movements).values(data);
-  const movementId = result[0].insertId;
-  
-  // Update product quantity
-  const product = await getProductById(data.productId);
-  if (!product) throw new Error("Product not found");
-  
-  const currentQty = parseFloat(product.currentQuantity);
-  const changeQty = parseFloat(data.quantity);
-  const newQty = data.type === 'entry' 
-    ? currentQty + changeQty 
-    : currentQty - changeQty;
-  
-  await updateProductQuantity(data.productId, newQty.toString());
-  
+export async function createMovement(data: InsertMovement): Promise<string> {
+  const db = requiredDb();
+  const userId = await resolveUserId(data.userId);
+
+  const { data: movementId, error } = await db.rpc("fn_record_movement", {
+    p_product_id: data.productId,
+    p_type: data.type,
+    p_quantity: data.quantity,
+    p_user_id: userId,
+    p_volunteer_name: data.volunteerName ?? null,
+    p_team_id: data.teamId ?? null,
+    p_service_time: data.serviceTime ?? null,
+    p_notes: data.notes ?? null,
+  });
+
+  if (error || !movementId) {
+    throw new Error(error?.message || "Failed to record movement");
+  }
+
   return movementId;
 }
 
-// ============================================
-// SEED DATA
-// ============================================
-
 export async function seedDefaultUnits(): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  
-  const defaultUnits: InsertUnit[] = [
+  const db = requiredDb();
+
+  const defaultUnits: Array<Pick<InsertUnit, "name" | "abbreviation">> = [
     { name: "Unidade", abbreviation: "un" },
     { name: "Quilograma", abbreviation: "kg" },
     { name: "Litro", abbreviation: "L" },
@@ -391,19 +576,18 @@ export async function seedDefaultUnits(): Promise<void> {
     { name: "Caixa", abbreviation: "cx" },
     { name: "Garrafa", abbreviation: "gf" },
   ];
-  
-  for (const unit of defaultUnits) {
-    await createUnit(unit);
+
+  const { error } = await db.from("units").upsert(defaultUnits, { onConflict: "name" });
+  if (error) {
+    throw new Error(error.message);
   }
 }
 
-// ============================================
-// DASHBOARD
-// ============================================
-
 export async function getDashboardStats() {
-  const db = await getDb();
-  if (!db) {
+  const db = requiredDb();
+  const { data, error } = await db.from("vw_dashboard_stats").select("*").limit(1).maybeSingle();
+
+  if (error || !data) {
     return {
       totalProducts: 0,
       lowStockCount: 0,
@@ -411,24 +595,13 @@ export async function getDashboardStats() {
     };
   }
 
-  const allProducts = await getAllProducts();
-  const lowStock = await getLowStockProducts();
-  const todayWithdrawals = await getTodayWithdrawals();
-
   return {
-    totalProducts: allProducts.length,
-    lowStockCount: lowStock.length,
-    todayWithdrawals,
+    totalProducts: data.total_products ?? 0,
+    lowStockCount: data.low_stock_count ?? 0,
+    todayWithdrawals: data.today_withdrawals ?? 0,
   };
 }
 
 export async function getMovementsByPeriod(startDate: string, endDate: string) {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  
-  const allMovements = await getAllMovements();
-  return allMovements.filter((m) => {
-    const movDate = new Date(m.createdAt);
-    return movDate >= start && movDate <= end;
-  });
+  return getMovementsByDateRange(new Date(startDate), new Date(endDate));
 }

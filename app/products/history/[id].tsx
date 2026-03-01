@@ -14,7 +14,7 @@ import { useColors } from "@/hooks/use-colors";
 export default function ProductHistoryScreen() {
   const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const productId = parseInt(id);
+  const productId = id;
 
   const { data: product, isLoading: productLoading } = trpc.products.getById.useQuery({ id: productId });
   const { data: movements, isLoading: movementsLoading } = trpc.movements.getByProduct.useQuery({ 
@@ -24,12 +24,12 @@ export default function ProductHistoryScreen() {
   const { data: teams } = trpc.teams.list.useQuery();
   const { data: units } = trpc.units.list.useQuery();
 
-  const getTeamName = (teamId?: number | null) => {
+  const getTeamName = (teamId?: string | null) => {
     if (!teamId) return "-";
     return teams?.find((t) => t.id === teamId)?.name || "-";
   };
 
-  const getUnitName = (unitId: number) => {
+  const getUnitName = (unitId: string) => {
     return units?.find((u) => u.id === unitId)?.abbreviation || "";
   };
 
@@ -87,7 +87,7 @@ export default function ProductHistoryScreen() {
         {/* Movements List */}
         <FlatList
           data={movements}
-          keyExtractor={(item) => item.id.toString()}
+          keyExtractor={(item) => item.id}
           contentContainerStyle={{ padding: 24, gap: 12 }}
           ListEmptyComponent={
             <View className="items-center justify-center py-12">

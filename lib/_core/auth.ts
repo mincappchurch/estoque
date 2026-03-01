@@ -3,7 +3,7 @@ import { Platform } from "react-native";
 import { SESSION_TOKEN_KEY, USER_INFO_KEY } from "@/constants/oauth";
 
 export type User = {
-  id: number;
+  id: string;
   openId: string;
   name: string | null;
   email: string | null;
@@ -13,10 +13,10 @@ export type User = {
 
 export async function getSessionToken(): Promise<string | null> {
   try {
-    // Web platform uses cookie-based auth, no manual token management needed
+    // Web platform stores token in localStorage
     if (Platform.OS === "web") {
-      console.log("[Auth] Web platform uses cookie-based auth, skipping token retrieval");
-      return null;
+      const token = window.localStorage.getItem(SESSION_TOKEN_KEY);
+      return token;
     }
 
     // Use SecureStore for native
@@ -35,9 +35,9 @@ export async function getSessionToken(): Promise<string | null> {
 
 export async function setSessionToken(token: string): Promise<void> {
   try {
-    // Web platform uses cookie-based auth, no manual token management needed
+    // Web platform stores token in localStorage
     if (Platform.OS === "web") {
-      console.log("[Auth] Web platform uses cookie-based auth, skipping token storage");
+      window.localStorage.setItem(SESSION_TOKEN_KEY, token);
       return;
     }
 
@@ -53,9 +53,9 @@ export async function setSessionToken(token: string): Promise<void> {
 
 export async function removeSessionToken(): Promise<void> {
   try {
-    // Web platform uses cookie-based auth, logout is handled by server clearing cookie
+    // Web platform removes token from localStorage
     if (Platform.OS === "web") {
-      console.log("[Auth] Web platform uses cookie-based auth, skipping token removal");
+      window.localStorage.removeItem(SESSION_TOKEN_KEY);
       return;
     }
 

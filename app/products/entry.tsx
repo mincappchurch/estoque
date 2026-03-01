@@ -44,7 +44,7 @@ export default function ProductEntryScreen() {
     product.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const getUnitName = (unitId: number) => {
+  const getUnitName = (unitId: string) => {
     return units?.find((u) => u.id === unitId)?.abbreviation || "";
   };
 
@@ -93,7 +93,7 @@ export default function ProductEntryScreen() {
             {/* Product List */}
             <FlatList
               data={filteredProducts}
-              keyExtractor={(item) => item.id.toString()}
+              keyExtractor={(item) => item.id}
               contentContainerStyle={{ gap: 12 }}
               renderItem={({ item }) => (
                 <TouchableOpacity

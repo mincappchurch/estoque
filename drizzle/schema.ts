@@ -1,98 +1,85 @@
 import {
   boolean,
-  decimal,
-  int,
-  mysqlEnum,
-  mysqlTable,
+  numeric,
+  pgEnum,
+  pgTable,
   text,
   timestamp,
-  varchar,
-} from "drizzle-orm/mysql-core";
+  uuid,
+} from "drizzle-orm/pg-core";
 
-/**
- * Core user table backing auth flow.
- * Extend this file with additional tables as your product grows.
- * Columns use camelCase to match both database fields and generated types.
- */
-export const users = mysqlTable("users", {
-  /**
-   * Surrogate primary key. Auto-incremented numeric value managed by the database.
-   * Use this for relations between tables.
-   */
-  id: int("id").autoincrement().primaryKey(),
-  /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
-  openId: varchar("openId", { length: 64 }).notNull().unique(),
+export const userRoleEnum = pgEnum("user_role", ["admin", "volunteer", "team_leader"]);
+export const movementTypeEnum = pgEnum("movement_type", ["entry", "withdrawal"]);
+export const serviceTimeEnum = pgEnum("service_time", ["08:30", "11:00", "17:00", "19:30"]);
+
+export const users = pgTable("users", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  openId: text("open_id").unique(),
   name: text("name"),
-  email: varchar("email", { length: 320 }),
-  loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
+  email: text("email"),
+  loginMethod: text("login_method").default("access_code").notNull(),
+  role: userRoleEnum("role").default("volunteer").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  lastSignedIn: timestamp("last_signed_in", { withTimezone: true }),
+});
+
+export const categories = pgTable("categories", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const teams = pgTable("teams", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const units = pgTable("units", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  abbreviation: text("abbreviation").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const products = pgTable("products", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  categoryId: uuid("category_id").notNull(),
+  unitId: uuid("unit_id").notNull(),
+  currentQuantity: numeric("current_quantity", { precision: 12, scale: 2 }).default("0").notNull(),
+  minimumStock: numeric("minimum_stock", { precision: 12, scale: 2 }).default("0").notNull(),
+  unitCost: numeric("unit_cost", { precision: 12, scale: 2 }),
+  maxWithdrawalLimit: numeric("max_withdrawal_limit", { precision: 12, scale: 2 }),
+  photoUrl: text("photo_url"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const movements = pgTable("movements", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  productId: uuid("product_id").notNull(),
+  type: movementTypeEnum("type").notNull(),
+  quantity: numeric("quantity", { precision: 12, scale: 2 }).notNull(),
+  volunteerName: text("volunteer_name"),
+  teamId: uuid("team_id"),
+  serviceTime: serviceTimeEnum("service_time"),
+  notes: text("notes"),
+  userId: uuid("user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// Categories table
-export const categories = mysqlTable("categories", {
-  id: int("id").autoincrement().primaryKey(),
-  name: varchar("name", { length: 100 }).notNull(),
-  description: text("description"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-// Teams table
-export const teams = mysqlTable("teams", {
-  id: int("id").autoincrement().primaryKey(),
-  name: varchar("name", { length: 100 }).notNull(),
-  description: text("description"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-// Units of measure table
-export const units = mysqlTable("units", {
-  id: int("id").autoincrement().primaryKey(),
-  name: varchar("name", { length: 50 }).notNull(),
-  abbreviation: varchar("abbreviation", { length: 10 }).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
-
-// Products table
-export const products = mysqlTable("products", {
-  id: int("id").autoincrement().primaryKey(),
-  name: varchar("name", { length: 255 }).notNull(),
-  description: text("description"),
-  categoryId: int("categoryId").notNull(),
-  unitId: int("unitId").notNull(),
-  currentQuantity: decimal("currentQuantity", { precision: 10, scale: 2 }).default("0").notNull(),
-  minimumStock: decimal("minimumStock", { precision: 10, scale: 2 }).default("0").notNull(),
-  unitCost: decimal("unitCost", { precision: 10, scale: 2 }),
-  maxWithdrawalLimit: decimal("maxWithdrawalLimit", { precision: 10, scale: 2 }),
-  photoUrl: text("photoUrl"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
-// Movements table (entries and withdrawals)
-export const movements = mysqlTable("movements", {
-  id: int("id").autoincrement().primaryKey(),
-  productId: int("productId").notNull(),
-  type: mysqlEnum("type", ["entry", "withdrawal"]).notNull(),
-  quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull(),
-  // For withdrawals
-  volunteerName: varchar("volunteerName", { length: 255 }),
-  teamId: int("teamId"),
-  serviceTime: mysqlEnum("serviceTime", ["08:30", "11:00", "17:00", "19:30"]),
-  // Common fields
-  notes: text("notes"),
-  userId: int("userId").notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
-
-// Export types
 export type Category = typeof categories.$inferSelect;
 export type InsertCategory = typeof categories.$inferInsert;
 

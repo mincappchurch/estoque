@@ -10,7 +10,7 @@ export default function EditTeamScreen() {
   const router = useRouter();
   const colors = useColors();
   const params = useLocalSearchParams<{ id: string }>();
-  const teamId = parseInt(params.id);
+  const teamId = params.id;
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");

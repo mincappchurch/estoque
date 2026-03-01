@@ -5,12 +5,14 @@ import { useAuth } from "@/hooks/use-auth";
 import { useEffect, useState } from "react";
 import * as Auth from "@/lib/_core/auth";
 import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
 
 export default function LoginScreen() {
   const { isAuthenticated, loading, refresh } = useAuth();
   const [accessCode, setAccessCode] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const colors = useColors();
+  const loginMutation = trpc.auth.loginWithCode.useMutation();
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -26,41 +28,20 @@ export default function LoginScreen() {
 
     try {
       setLoginLoading(true);
-      
-      // Access codes
-      const adminCode = "IGREJA2024";
-      const volunteerCode = "VOLUNTARIO2024";
-      
-      const code = accessCode.toUpperCase();
-      let user: Auth.User;
-      
-      if (code === adminCode) {
-        // Admin user
-        user = {
-          id: 1,
-          openId: `admin-${Date.now()}`,
-          name: "Administrador",
-          email: "admin@igreja.com",
-          loginMethod: "access_code",
-          lastSignedIn: new Date(),
-        };
-        await Auth.setSessionToken("access-token-admin-" + Date.now());
-      } else if (code === volunteerCode) {
-        // Volunteer user
-        user = {
-          id: 2,
-          openId: `volunteer-${Date.now()}`,
-          name: "Voluntário",
-          email: "voluntario@igreja.com",
-          loginMethod: "access_code",
-          lastSignedIn: new Date(),
-        };
-        await Auth.setSessionToken("access-token-volunteer-" + Date.now());
-      } else {
-        Alert.alert("Erro", "Código de acesso inválido");
-        setLoginLoading(false);
-        return;
-      }
+      const result = await loginMutation.mutateAsync({
+        code: accessCode,
+      });
+
+      await Auth.setSessionToken(result.token);
+
+      const user: Auth.User = {
+        id: result.user.id,
+        openId: result.user.openId ?? `access-code-${result.user.id}`,
+        name: result.user.name ?? "Usuário",
+        email: result.user.email ?? null,
+        loginMethod: result.user.loginMethod ?? "access_code",
+        lastSignedIn: result.user.lastSignedIn ? new Date(result.user.lastSignedIn) : new Date(),
+      };
       
       // Store user info
       await Auth.setUserInfo(user);
@@ -72,7 +53,7 @@ export default function LoginScreen() {
       router.replace("/(tabs)");
     } catch (error) {
       console.error("Login error:", error);
-      Alert.alert("Erro", "Falha ao fazer login");
+      Alert.alert("Erro", "Código inválido ou falha ao fazer login");
     } finally {
       setLoginLoading(false);
     }

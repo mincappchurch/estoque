@@ -18,6 +18,9 @@ import type {
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export type SessionPayload = {
   openId: string;
   appId: string;
@@ -31,11 +34,6 @@ const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserI
 class OAuthService {
   constructor(private client: ReturnType<typeof axios.create>) {
     console.log("[OAuth] Initialized with baseURL:", ENV.oAuthServerUrl);
-    if (!ENV.oAuthServerUrl) {
-      console.error(
-        "[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.",
-      );
-    }
   }
 
   private decodeState(state: string): string {
@@ -240,15 +238,41 @@ class SDKServer {
     }
 
     // Development mode: accept dev tokens and access tokens
-    if (token && (token.startsWith("dev-token-") || token.startsWith("access-token-"))) {
+    if (token && token.startsWith("access-token-")) {
+      const tokenUserId = token.slice("access-token-".length).trim();
+      if (UUID_REGEX.test(tokenUserId)) {
+        const accessUser = await db.getUserById(tokenUserId);
+        if (accessUser) {
+          return accessUser;
+        }
+      }
+
+      console.log("[Auth] Access token without mapped user, using fallback user");
+      const fallbackUser: User = {
+        id: tokenUserId || "00000000-0000-0000-0000-000000000000",
+        openId: "access-user",
+        name: "Usuário",
+        email: "usuario@igreja.com",
+        loginMethod: "access_code",
+        role: "admin",
+        isActive: true,
+        lastSignedIn: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      return fallbackUser;
+    }
+
+    if (token && token.startsWith("dev-token-")) {
       console.log("[Auth] Dev/Access token detected, creating user");
       const devUser: User = {
-        id: 1,
+        id: "00000000-0000-0000-0000-000000000000",
         openId: "access-user",
         name: "Usu\u00e1rio",
         email: "usuario@igreja.com",
         loginMethod: "access_code",
         role: "admin",
+        isActive: true,
         lastSignedIn: new Date(),
         createdAt: new Date(),
         updatedAt: new Date(),
