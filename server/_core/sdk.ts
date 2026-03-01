@@ -247,20 +247,7 @@ class SDKServer {
         }
       }
 
-      console.log("[Auth] Access token without mapped user, using fallback user");
-      const fallbackUser: User = {
-        id: tokenUserId || "00000000-0000-0000-0000-000000000000",
-        openId: "access-user",
-        name: "Usuário",
-        email: "usuario@igreja.com",
-        loginMethod: "access_code",
-        role: "admin",
-        isActive: true,
-        lastSignedIn: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      return fallbackUser;
+      throw ForbiddenError("Access token inválido");
     }
 
     if (token && token.startsWith("dev-token-")) {

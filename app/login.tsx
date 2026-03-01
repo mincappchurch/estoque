@@ -40,22 +40,47 @@ export default function LoginScreen() {
       const accessCodeResult = data[0] as {
         access_code_id: string;
         label: string;
+        role: "admin" | "volunteer" | "team_leader";
       };
 
       if (!accessCodeResult?.access_code_id) {
         throw new Error("Código de acesso inválido");
       }
 
-      const token = `access-token-${accessCodeResult.access_code_id}`;
+      const openId = `access-code-${accessCodeResult.access_code_id}`;
+      const nowIso = new Date().toISOString();
+
+      const { data: userRecord, error: userError } = await supabase
+        .from("users")
+        .upsert(
+          {
+            open_id: openId,
+            name: accessCodeResult.label,
+            email: null,
+            login_method: "access_code",
+            role: accessCodeResult.role,
+            last_signed_in: nowIso,
+          },
+          { onConflict: "open_id" },
+        )
+        .select("id, name, role")
+        .single();
+
+      if (userError || !userRecord?.id) {
+        throw new Error(userError?.message || "Falha ao carregar usuário");
+      }
+
+      const token = `access-token-${userRecord.id}`;
 
       await Auth.setSessionToken(token);
 
       const user: Auth.User = {
-        id: accessCodeResult.access_code_id,
-        openId: `access-code-${accessCodeResult.access_code_id}`,
-        name: accessCodeResult.label ?? "Usuário",
+        id: userRecord.id,
+        openId,
+        name: userRecord.name ?? accessCodeResult.label ?? "Usuário",
         email: null,
         loginMethod: "access_code",
+        role: (userRecord.role as Auth.User["role"]) ?? accessCodeResult.role,
         lastSignedIn: new Date(),
       };
       

@@ -6,18 +6,26 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
-  Image,
 } from "react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import { trpc } from "@/lib/trpc";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { supabase } from "@/lib/supabase";
+
+type CategoryOption = {
+  id: string;
+  name: string;
+};
+
+type UnitOption = {
+  id: string;
+  abbreviation: string;
+};
 
 export default function AddProductScreen() {
   const colors = useColors();
-  const utils = trpc.useUtils();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -27,31 +35,54 @@ export default function AddProductScreen() {
   const [minimumStock, setMinimumStock] = useState("");
   const [unitCost, setUnitCost] = useState("");
   const [maxWithdrawalLimit, setMaxWithdrawalLimit] = useState("");
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [units, setUnits] = useState<UnitOption[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [unitsLoading, setUnitsLoading] = useState(true);
+  const [categoriesError, setCategoriesError] = useState<string | null>(null);
+  const [unitsError, setUnitsError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const {
-    data: categories,
-    isLoading: categoriesLoading,
-    error: categoriesError,
-  } = trpc.categories.list.useQuery();
-  const {
-    data: units,
-    isLoading: unitsLoading,
-    error: unitsError,
-  } = trpc.units.list.useQuery();
+  useEffect(() => {
+    const loadCategories = async () => {
+      setCategoriesLoading(true);
+      setCategoriesError(null);
+      const { data, error } = await supabase
+        .from("categories")
+        .select("id, name")
+        .order("name", { ascending: true });
 
-  const createProduct = trpc.products.create.useMutation({
-    onSuccess: () => {
-      Alert.alert("Sucesso", "Produto cadastrado com sucesso!");
-      utils.products.list.invalidate();
-      utils.dashboard.stats.invalidate();
-      router.back();
-    },
-    onError: (error) => {
-      Alert.alert("Erro", error.message);
-    },
-  });
+      if (error) {
+        setCategoriesError(error.message);
+        setCategories([]);
+      } else {
+        setCategories((data ?? []) as CategoryOption[]);
+      }
+      setCategoriesLoading(false);
+    };
 
-  const handleSubmit = () => {
+    const loadUnits = async () => {
+      setUnitsLoading(true);
+      setUnitsError(null);
+      const { data, error } = await supabase
+        .from("units")
+        .select("id, abbreviation")
+        .order("name", { ascending: true });
+
+      if (error) {
+        setUnitsError(error.message);
+        setUnits([]);
+      } else {
+        setUnits((data ?? []) as UnitOption[]);
+      }
+      setUnitsLoading(false);
+    };
+
+    loadCategories();
+    loadUnits();
+  }, []);
+
+  const handleSubmit = async () => {
     if (!name.trim()) {
       Alert.alert("Erro", "Informe o nome do produto");
       return;
@@ -73,16 +104,30 @@ export default function AddProductScreen() {
       return;
     }
 
-    createProduct.mutate({
-      name: name.trim(),
-      description: description.trim() || undefined,
-      categoryId: selectedCategory,
-      unitId: selectedUnit,
-      currentQuantity,
-      minimumStock,
-      unitCost: unitCost || undefined,
-      maxWithdrawalLimit: maxWithdrawalLimit || undefined,
-    });
+    try {
+      setSaving(true);
+      const { error } = await supabase.from("products").insert({
+        name: name.trim(),
+        description: description.trim() || null,
+        category_id: selectedCategory,
+        unit_id: selectedUnit,
+        current_quantity: currentQuantity,
+        minimum_stock: minimumStock,
+        unit_cost: unitCost || null,
+        max_withdrawal_limit: maxWithdrawalLimit || null,
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      Alert.alert("Sucesso", "Produto cadastrado com sucesso!");
+      router.back();
+    } catch (error) {
+      Alert.alert("Erro", error instanceof Error ? error.message : "Falha ao cadastrar produto");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -279,10 +324,10 @@ export default function AddProductScreen() {
           {/* Submit Button */}
           <TouchableOpacity
             onPress={handleSubmit}
-            disabled={createProduct.isPending}
+            disabled={saving}
             className="bg-primary rounded-xl p-4 active:opacity-80 mt-4"
           >
-            {createProduct.isPending ? (
+            {saving ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
               <Text className="text-background text-center font-semibold text-lg">

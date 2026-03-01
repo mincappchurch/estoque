@@ -8,6 +8,7 @@ export type User = {
   name: string | null;
   email: string | null;
   loginMethod: string | null;
+  role?: "admin" | "volunteer" | "team_leader" | null;
   lastSignedIn: Date;
 };
 

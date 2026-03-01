@@ -8,9 +8,7 @@ import { useAuth } from "@/hooks/use-auth";
 export default function MoreScreen() {
   const colors = useColors();
   const { user, logout } = useAuth();
-  
-  // Check if user is admin (based on name or openId)
-  const isAdmin = user?.name === "Administrador" || user?.openId?.includes("admin");
+  const isAdmin = user?.role === "admin";
 
   const handleLogout = async () => {
     await logout();
@@ -45,7 +43,6 @@ export default function MoreScreen() {
             </View>
           )}
 
-          {/* Options - Only show for admin */}
           {isAdmin && (
             <View className="gap-3">
               <Text className="text-lg font-semibold text-foreground">Gerenciamento</Text>

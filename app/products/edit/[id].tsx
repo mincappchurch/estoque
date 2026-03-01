@@ -10,19 +10,35 @@ import {
 import { useState, useEffect } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import { trpc } from "@/lib/trpc";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { supabase } from "@/lib/supabase";
+
+type ProductFormData = {
+  id: string;
+  name: string;
+  description: string | null;
+  categoryId: string;
+  unitId: string;
+  currentQuantity: string;
+  minimumStock: string;
+  unitCost: string | null;
+  maxWithdrawalLimit: string | null;
+};
+
+type CategoryOption = { id: string; name: string };
+type UnitOption = { id: string; abbreviation: string };
 
 export default function EditProductScreen() {
   const colors = useColors();
-  const utils = trpc.useUtils();
   const { id } = useLocalSearchParams<{ id: string }>();
   const productId = id;
 
-  const { data: product, isLoading } = trpc.products.getById.useQuery({ id: productId });
-  const { data: categories } = trpc.categories.list.useQuery();
-  const { data: units } = trpc.units.list.useQuery();
+  const [product, setProduct] = useState<ProductFormData | null>(null);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [units, setUnits] = useState<UnitOption[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -33,30 +49,48 @@ export default function EditProductScreen() {
   const [maxWithdrawalLimit, setMaxWithdrawalLimit] = useState("");
 
   useEffect(() => {
-    if (product) {
-      setName(product.name);
-      setDescription(product.description || "");
-      setSelectedCategory(product.categoryId);
-      setSelectedUnit(product.unitId);
-      setMinimumStock(product.minimumStock);
-      setUnitCost(product.unitCost || "");
-      setMaxWithdrawalLimit(product.maxWithdrawalLimit || "");
-    }
-  }, [product]);
+    const loadData = async () => {
+      if (!productId) return;
+      setIsLoading(true);
 
-  const updateProduct = trpc.products.update.useMutation({
-    onSuccess: () => {
-      Alert.alert("Sucesso", "Produto atualizado com sucesso!");
-      utils.products.list.invalidate();
-      utils.products.getById.invalidate({ id: productId });
-      router.back();
-    },
-    onError: (error: any) => {
-      Alert.alert("Erro", error.message);
-    },
-  });
+      const [{ data: productData }, { data: categoriesData }, { data: unitsData }] = await Promise.all([
+        supabase.from("products").select("*").eq("id", productId).single(),
+        supabase.from("categories").select("id, name").order("name", { ascending: true }),
+        supabase.from("units").select("id, abbreviation").order("name", { ascending: true }),
+      ]);
 
-  const handleSubmit = () => {
+      if (productData) {
+        const normalized = {
+          id: productData.id,
+          name: productData.name,
+          description: productData.description,
+          categoryId: productData.category_id,
+          unitId: productData.unit_id,
+          currentQuantity: productData.current_quantity,
+          minimumStock: productData.minimum_stock,
+          unitCost: productData.unit_cost,
+          maxWithdrawalLimit: productData.max_withdrawal_limit,
+        } as ProductFormData;
+
+        setProduct(normalized);
+        setName(normalized.name);
+        setDescription(normalized.description || "");
+        setSelectedCategory(normalized.categoryId);
+        setSelectedUnit(normalized.unitId);
+        setMinimumStock(normalized.minimumStock);
+        setUnitCost(normalized.unitCost || "");
+        setMaxWithdrawalLimit(normalized.maxWithdrawalLimit || "");
+      }
+
+      setCategories((categoriesData ?? []) as CategoryOption[]);
+      setUnits((unitsData ?? []) as UnitOption[]);
+      setIsLoading(false);
+    };
+
+    loadData();
+  }, [productId]);
+
+  const handleSubmit = async () => {
     if (!name.trim()) {
       Alert.alert("Erro", "Informe o nome do produto");
       return;
@@ -74,16 +108,32 @@ export default function EditProductScreen() {
       return;
     }
 
-    updateProduct.mutate({
-      id: productId,
-      name: name.trim(),
-      description: description.trim() || undefined,
-      categoryId: selectedCategory,
-      unitId: selectedUnit,
-      minimumStock,
-      unitCost: unitCost || undefined,
-      maxWithdrawalLimit: maxWithdrawalLimit || undefined,
-    });
+    try {
+      setSaving(true);
+      const { error } = await supabase
+        .from("products")
+        .update({
+          name: name.trim(),
+          description: description.trim() || null,
+          category_id: selectedCategory,
+          unit_id: selectedUnit,
+          minimum_stock: minimumStock,
+          unit_cost: unitCost || null,
+          max_withdrawal_limit: maxWithdrawalLimit || null,
+        })
+        .eq("id", productId);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      Alert.alert("Sucesso", "Produto atualizado com sucesso!");
+      router.back();
+    } catch (error) {
+      Alert.alert("Erro", error instanceof Error ? error.message : "Falha ao atualizar produto");
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (isLoading) {
@@ -265,10 +315,10 @@ export default function EditProductScreen() {
           {/* Submit Button */}
           <TouchableOpacity
             onPress={handleSubmit}
-            disabled={updateProduct.isPending}
+            disabled={saving}
             className="bg-primary rounded-xl p-4 active:opacity-80 mt-4"
           >
-            {updateProduct.isPending ? (
+            {saving ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
               <Text className="text-background text-center font-semibold text-lg">

@@ -4,7 +4,7 @@ import { COOKIE_NAME } from "../shared/const.js";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { hasSupabaseAdminConfig } from "./_core/supabase";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import * as db from "./db";
 import { storagePut } from "./storage";
 
@@ -41,10 +41,10 @@ export const appRouter = router({
           user,
         };
       }),
-    listAccessCodes: protectedProcedure.query(async () => {
+    listAccessCodes: adminProcedure.query(async () => {
       return await db.getAllAccessCodes();
     }),
-    createAccessCode: protectedProcedure
+    createAccessCode: adminProcedure
       .input(
         z.object({
           label: z.string().min(1).max(100),
@@ -87,7 +87,7 @@ export const appRouter = router({
         return await db.getCategoryById(input.id);
       }),
 
-    create: protectedProcedure
+    create: adminProcedure
       .input(
         z.object({
           name: z.string().min(1).max(100),

@@ -2,9 +2,9 @@ import { useState, useEffect } from "react";
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import { trpc } from "@/lib/trpc";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { supabase } from "@/lib/supabase";
 
 export default function EditCategoryScreen() {
   const router = useRouter();
@@ -15,17 +15,28 @@ export default function EditCategoryScreen() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
 
-  const { data: category, isLoading } = trpc.categories.getById.useQuery({ id: categoryId });
-  const updateMutation = trpc.categories.update.useMutation();
-  const deleteMutation = trpc.categories.delete.useMutation();
-  const utils = trpc.useUtils();
+  const [isLoading, setIsLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    if (category) {
-      setName(category.name);
-      setDescription(category.description || "");
-    }
-  }, [category]);
+    const loadCategory = async () => {
+      if (!categoryId) return;
+      setIsLoading(true);
+      const { data } = await supabase
+        .from("categories")
+        .select("name, description")
+        .eq("id", categoryId)
+        .single();
+      if (data) {
+        setName(data.name);
+        setDescription(data.description || "");
+      }
+      setIsLoading(false);
+    };
+
+    loadCategory();
+  }, [categoryId]);
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -34,19 +45,23 @@ export default function EditCategoryScreen() {
     }
 
     try {
-      await updateMutation.mutateAsync({
-        id: categoryId,
-        name: name.trim(),
-        description: description.trim() || undefined,
-      });
+      setSaving(true);
+      const { error } = await supabase
+        .from("categories")
+        .update({ name: name.trim(), description: description.trim() || null })
+        .eq("id", categoryId);
 
-      await utils.categories.list.invalidate();
+      if (error) {
+        throw new Error(error.message);
+      }
       
       Alert.alert("Sucesso", "Categoria atualizada com sucesso!", [
         { text: "OK", onPress: () => router.back() },
       ]);
     } catch (error) {
-      Alert.alert("Erro", "Não foi possível atualizar a categoria");
+      Alert.alert("Erro", error instanceof Error ? error.message : "Não foi possível atualizar a categoria");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -61,13 +76,18 @@ export default function EditCategoryScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              await deleteMutation.mutateAsync({ id: categoryId });
-              await utils.categories.list.invalidate();
+              setDeleting(true);
+              const { error } = await supabase.from("categories").delete().eq("id", categoryId);
+              if (error) {
+                throw new Error(error.message);
+              }
               Alert.alert("Sucesso", "Categoria excluída com sucesso!", [
                 { text: "OK", onPress: () => router.back() },
               ]);
             } catch (error) {
-              Alert.alert("Erro", "Não foi possível excluir a categoria");
+              Alert.alert("Erro", error instanceof Error ? error.message : "Não foi possível excluir a categoria");
+            } finally {
+              setDeleting(false);
             }
           },
         },
@@ -155,17 +175,17 @@ export default function EditCategoryScreen() {
           {/* Save Button */}
           <TouchableOpacity
             onPress={handleSave}
-            disabled={updateMutation.isPending}
+            disabled={saving}
             style={{
-              backgroundColor: updateMutation.isPending ? "#9ca3af" : "#FF6B00",
+              backgroundColor: saving ? "#9ca3af" : "#FF6B00",
               borderRadius: 12,
               padding: 16,
               alignItems: "center",
               marginTop: 8,
-              opacity: updateMutation.isPending ? 0.5 : 1,
+              opacity: saving ? 0.5 : 1,
             }}
           >
-            {updateMutation.isPending ? (
+            {saving ? (
               <ActivityIndicator size="small" color="white" />
             ) : (
               <Text style={{ color: "white", fontSize: 16, fontWeight: "600" }}>
@@ -177,19 +197,19 @@ export default function EditCategoryScreen() {
           {/* Delete Button */}
           <TouchableOpacity
             onPress={handleDelete}
-            disabled={deleteMutation.isPending}
+            disabled={deleting}
             style={{
-              backgroundColor: deleteMutation.isPending ? "#9ca3af" : "#dc2626",
+              backgroundColor: deleting ? "#9ca3af" : "#dc2626",
               borderRadius: 12,
               padding: 16,
               alignItems: "center",
               flexDirection: "row",
               justifyContent: "center",
               gap: 8,
-              opacity: deleteMutation.isPending ? 0.5 : 1,
+              opacity: deleting ? 0.5 : 1,
             }}
           >
-            {deleteMutation.isPending ? (
+            {deleting ? (
               <ActivityIndicator size="small" color="white" />
             ) : (
               <>

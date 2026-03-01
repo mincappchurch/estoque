@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -10,9 +10,11 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import { trpc } from "@/lib/trpc";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase";
+import { hash } from "bcryptjs";
 
 type Role = "admin" | "volunteer" | "team_leader";
 
@@ -22,37 +24,49 @@ const ROLE_LABEL: Record<Role, string> = {
   team_leader: "Líder de Time",
 };
 
+type AccessCodeItem = {
+  id: string;
+  label: string;
+  role: Role;
+  is_active: boolean;
+  created_at: string;
+};
+
 export default function AccessCodesScreen() {
   const router = useRouter();
   const colors = useColors();
-  const utils = trpc.useUtils();
+  const { user, loading } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   const [label, setLabel] = useState("");
   const [code, setCode] = useState("");
   const [role, setRole] = useState<Role>("volunteer");
+  const [accessCodes, setAccessCodes] = useState<AccessCodeItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const { data: accessCodes, isLoading } = trpc.auth.listAccessCodes.useQuery();
+  const loadAccessCodes = async () => {
+    if (!isAdmin) return;
+    setIsLoading(true);
+    const { data } = await supabase
+      .from("access_codes")
+      .select("id, label, role, is_active, created_at")
+      .order("created_at", { ascending: false });
+    setAccessCodes((data ?? []) as AccessCodeItem[]);
+    setIsLoading(false);
+  };
 
-  const createMutation = trpc.auth.createAccessCode.useMutation({
-    onSuccess: async () => {
-      await utils.auth.listAccessCodes.invalidate();
-      setLabel("");
-      setCode("");
-      setRole("volunteer");
-      Alert.alert("Sucesso", "Usuário com código de acesso cadastrado com sucesso!");
-    },
-    onError: (error) => {
-      Alert.alert("Erro", error.message);
-    },
-  });
+  useEffect(() => {
+    loadAccessCodes();
+  }, [isAdmin]);
 
   const sortedCodes = useMemo(() => {
     return [...(accessCodes ?? [])].sort((a, b) => {
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
   }, [accessCodes]);
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!label.trim()) {
       Alert.alert("Erro", "Informe o nome do usuário");
       return;
@@ -63,11 +77,31 @@ export default function AccessCodesScreen() {
       return;
     }
 
-    createMutation.mutate({
-      label: label.trim(),
-      code: code.trim().toUpperCase(),
-      role,
-    });
+    try {
+      setSaving(true);
+      const normalizedCode = code.trim().toUpperCase();
+      const codeHash = await hash(normalizedCode, 10);
+      const { error } = await supabase.from("access_codes").insert({
+        label: label.trim(),
+        code_hash: codeHash,
+        role,
+        is_active: true,
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      setLabel("");
+      setCode("");
+      setRole("volunteer");
+      await loadAccessCodes();
+      Alert.alert("Sucesso", "Usuário com código de acesso cadastrado com sucesso!");
+    } catch (error) {
+      Alert.alert("Erro", error instanceof Error ? error.message : "Falha ao cadastrar código");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -95,6 +129,21 @@ export default function AccessCodesScreen() {
           </View>
         </View>
 
+        {loading ? (
+          <View className="flex-1 items-center justify-center">
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : !isAdmin ? (
+          <View className="px-6 pt-6">
+            <View className="bg-surface rounded-xl p-4 border border-warning/40">
+              <Text className="text-warning font-medium">Acesso restrito</Text>
+              <Text className="text-sm text-muted mt-1">
+                Apenas administrador pode cadastrar usuários por código.
+              </Text>
+            </View>
+          </View>
+        ) : (
+        <>
         <View className="px-6 pt-5 gap-3">
           <Text className="text-sm font-medium text-foreground">Nome do Usuário *</Text>
           <TextInput
@@ -135,10 +184,10 @@ export default function AccessCodesScreen() {
 
           <TouchableOpacity
             onPress={handleCreate}
-            disabled={createMutation.isPending}
+            disabled={saving}
             className="bg-primary rounded-xl p-4 active:opacity-80 mt-1"
           >
-            {createMutation.isPending ? (
+            {saving ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
               <Text className="text-background text-center font-semibold text-base">
@@ -169,16 +218,18 @@ export default function AccessCodesScreen() {
                 <View className="bg-surface rounded-xl p-4 border border-border">
                   <View className="flex-row items-center justify-between">
                     <Text className="text-base font-semibold text-foreground">{item.label}</Text>
-                    <Text className="text-xs text-muted">{ROLE_LABEL[item.role as Role]}</Text>
+                    <Text className="text-xs text-muted">{ROLE_LABEL[item.role]}</Text>
                   </View>
                   <Text className="text-xs text-muted mt-1">
-                    Status: {item.isActive ? "Ativo" : "Inativo"}
+                    Status: {item.is_active ? "Ativo" : "Inativo"}
                   </Text>
                 </View>
               )}
             />
           )}
         </View>
+        </>
+        )}
       </View>
     </ScreenContainer>
   );

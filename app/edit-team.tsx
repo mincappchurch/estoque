@@ -2,9 +2,9 @@ import { useState, useEffect } from "react";
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import { trpc } from "@/lib/trpc";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { supabase } from "@/lib/supabase";
 
 export default function EditTeamScreen() {
   const router = useRouter();
@@ -15,17 +15,24 @@ export default function EditTeamScreen() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
 
-  const { data: team, isLoading } = trpc.teams.getById.useQuery({ id: teamId });
-  const updateMutation = trpc.teams.update.useMutation();
-  const deleteMutation = trpc.teams.delete.useMutation();
-  const utils = trpc.useUtils();
+  const [isLoading, setIsLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    if (team) {
-      setName(team.name);
-      setDescription(team.description || "");
-    }
-  }, [team]);
+    const loadTeam = async () => {
+      if (!teamId) return;
+      setIsLoading(true);
+      const { data } = await supabase.from("teams").select("name, description").eq("id", teamId).single();
+      if (data) {
+        setName(data.name);
+        setDescription(data.description || "");
+      }
+      setIsLoading(false);
+    };
+
+    loadTeam();
+  }, [teamId]);
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -34,20 +41,23 @@ export default function EditTeamScreen() {
     }
 
     try {
-      await updateMutation.mutateAsync({
-        id: teamId,
-        name: name.trim(),
-        description: description.trim() || undefined,
-      });
+      setSaving(true);
+      const { error } = await supabase
+        .from("teams")
+        .update({ name: name.trim(), description: description.trim() || null })
+        .eq("id", teamId);
 
-      // Invalidate queries to refresh data
-      await utils.teams.list.invalidate();
+      if (error) {
+        throw new Error(error.message);
+      }
       
       Alert.alert("Sucesso", "Time atualizado com sucesso!", [
         { text: "OK", onPress: () => router.back() },
       ]);
     } catch (error) {
-      Alert.alert("Erro", "Não foi possível atualizar o time");
+      Alert.alert("Erro", error instanceof Error ? error.message : "Não foi possível atualizar o time");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -62,13 +72,18 @@ export default function EditTeamScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              await deleteMutation.mutateAsync({ id: teamId });
-              await utils.teams.list.invalidate();
+              setDeleting(true);
+              const { error } = await supabase.from("teams").delete().eq("id", teamId);
+              if (error) {
+                throw new Error(error.message);
+              }
               Alert.alert("Sucesso", "Time excluído com sucesso!", [
                 { text: "OK", onPress: () => router.back() },
               ]);
             } catch (error) {
-              Alert.alert("Erro", "Não foi possível excluir o time");
+              Alert.alert("Erro", error instanceof Error ? error.message : "Não foi possível excluir o time");
+            } finally {
+              setDeleting(false);
             }
           },
         },
@@ -156,17 +171,17 @@ export default function EditTeamScreen() {
           {/* Save Button */}
           <TouchableOpacity
             onPress={handleSave}
-            disabled={updateMutation.isPending}
+            disabled={saving}
             style={{
-              backgroundColor: updateMutation.isPending ? "#9ca3af" : "#FF6B00",
+              backgroundColor: saving ? "#9ca3af" : "#FF6B00",
               borderRadius: 12,
               padding: 16,
               alignItems: "center",
               marginTop: 8,
-              opacity: updateMutation.isPending ? 0.5 : 1,
+              opacity: saving ? 0.5 : 1,
             }}
           >
-            {updateMutation.isPending ? (
+            {saving ? (
               <ActivityIndicator size="small" color="white" />
             ) : (
               <Text style={{ color: "white", fontSize: 16, fontWeight: "600" }}>
@@ -178,19 +193,19 @@ export default function EditTeamScreen() {
           {/* Delete Button */}
           <TouchableOpacity
             onPress={handleDelete}
-            disabled={deleteMutation.isPending}
+            disabled={deleting}
             style={{
-              backgroundColor: deleteMutation.isPending ? "#9ca3af" : "#dc2626",
+              backgroundColor: deleting ? "#9ca3af" : "#dc2626",
               borderRadius: 12,
               padding: 16,
               alignItems: "center",
               flexDirection: "row",
               justifyContent: "center",
               gap: 8,
-              opacity: deleteMutation.isPending ? 0.5 : 1,
+              opacity: deleting ? 0.5 : 1,
             }}
           >
-            {deleteMutation.isPending ? (
+            {deleting ? (
               <ActivityIndicator size="small" color="white" />
             ) : (
               <>

@@ -124,6 +124,7 @@ export async function getMe(): Promise<{
   name: string | null;
   email: string | null;
   loginMethod: string | null;
+  role?: "admin" | "volunteer" | "team_leader" | null;
   lastSignedIn: string;
 } | null> {
   try {

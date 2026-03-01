@@ -2,9 +2,9 @@ import { useState, useEffect } from "react";
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import { trpc } from "@/lib/trpc";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { supabase } from "@/lib/supabase";
 
 export default function EditUnitScreen() {
   const router = useRouter();
@@ -15,17 +15,23 @@ export default function EditUnitScreen() {
   const [name, setName] = useState("");
   const [abbreviation, setAbbreviation] = useState("");
 
-  const { data: units, isLoading } = trpc.units.list.useQuery();
-  const unit = units?.find(u => u.id === unitId);
-  const deleteMutation = trpc.units.delete.useMutation();
-  const utils = trpc.useUtils();
+  const [isLoading, setIsLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    if (unit) {
-      setName(unit.name);
-      setAbbreviation(unit.abbreviation);
-    }
-  }, [unit]);
+    const loadUnit = async () => {
+      if (!unitId) return;
+      setIsLoading(true);
+      const { data } = await supabase.from("units").select("name, abbreviation").eq("id", unitId).single();
+      if (data) {
+        setName(data.name);
+        setAbbreviation(data.abbreviation);
+      }
+      setIsLoading(false);
+    };
+
+    loadUnit();
+  }, [unitId]);
 
 
 
@@ -40,13 +46,18 @@ export default function EditUnitScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              await deleteMutation.mutateAsync({ id: unitId });
-              await utils.units.list.invalidate();
+              setDeleting(true);
+              const { error } = await supabase.from("units").delete().eq("id", unitId);
+              if (error) {
+                throw new Error(error.message);
+              }
               Alert.alert("Sucesso", "Unidade excluída com sucesso!", [
                 { text: "OK", onPress: () => router.back() },
               ]);
             } catch (error) {
-              Alert.alert("Erro", "Não foi possível excluir a unidade");
+              Alert.alert("Erro", error instanceof Error ? error.message : "Não foi possível excluir a unidade");
+            } finally {
+              setDeleting(false);
             }
           },
         },
@@ -132,19 +143,19 @@ export default function EditUnitScreen() {
           {/* Delete Button */}
           <TouchableOpacity
             onPress={handleDelete}
-            disabled={deleteMutation.isPending}
+            disabled={deleting}
             style={{
-              backgroundColor: deleteMutation.isPending ? "#9ca3af" : "#dc2626",
+              backgroundColor: deleting ? "#9ca3af" : "#dc2626",
               borderRadius: 12,
               padding: 16,
               alignItems: "center",
               flexDirection: "row",
               justifyContent: "center",
               gap: 8,
-              opacity: deleteMutation.isPending ? 0.5 : 1,
+              opacity: deleting ? 0.5 : 1,
             }}
           >
-            {deleteMutation.isPending ? (
+            {deleting ? (
               <ActivityIndicator size="small" color="white" />
             ) : (
               <>

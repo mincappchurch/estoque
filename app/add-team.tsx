@@ -2,40 +2,47 @@ import { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import { trpc } from "@/lib/trpc";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase";
 
 export default function AddTeamScreen() {
   const router = useRouter();
   const colors = useColors();
-  const utils = trpc.useUtils();
+  const { user, loading } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
 
-  const createMutation = trpc.teams.create.useMutation({
-    onSuccess: async () => {
-      await utils.teams.list.invalidate();
-      Alert.alert("Sucesso", "Time cadastrado com sucesso!", [
-        { text: "OK", onPress: () => router.back() },
-      ]);
-    },
-    onError: (error) => {
-      Alert.alert("Erro", error.message);
-    },
-  });
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) {
       Alert.alert("Erro", "Informe o nome do time");
       return;
     }
 
-    createMutation.mutate({
-      name: name.trim(),
-      description: description.trim() || undefined,
-    });
+    try {
+      setSaving(true);
+      const { error } = await supabase.from("teams").insert({
+        name: name.trim(),
+        description: description.trim() || null,
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      Alert.alert("Sucesso", "Time cadastrado com sucesso!", [
+        { text: "OK", onPress: () => router.back() },
+      ]);
+    } catch (error) {
+      Alert.alert("Erro", error instanceof Error ? error.message : "Falha ao cadastrar time");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -60,6 +67,18 @@ export default function AddTeamScreen() {
           </View>
         </View>
 
+        {loading ? (
+          <View className="items-center justify-center py-10">
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : !isAdmin ? (
+          <View className="bg-surface rounded-xl p-4 border border-warning/40">
+            <Text className="text-warning font-medium">Acesso restrito</Text>
+            <Text className="text-sm text-muted mt-1">
+              Apenas administrador pode cadastrar time.
+            </Text>
+          </View>
+        ) : (
         <View className="gap-4">
           <View>
             <Text className="text-sm font-medium text-foreground mb-2">Nome do Time *</Text>
@@ -105,17 +124,17 @@ export default function AddTeamScreen() {
 
           <TouchableOpacity
             onPress={handleSave}
-            disabled={createMutation.isPending}
+            disabled={saving}
             style={{
-              backgroundColor: createMutation.isPending ? "#9ca3af" : colors.primary,
+              backgroundColor: saving ? "#9ca3af" : colors.primary,
               borderRadius: 12,
               padding: 16,
               alignItems: "center",
               marginTop: 8,
-              opacity: createMutation.isPending ? 0.5 : 1,
+              opacity: saving ? 0.5 : 1,
             }}
           >
-            {createMutation.isPending ? (
+            {saving ? (
               <ActivityIndicator size="small" color="white" />
             ) : (
               <Text style={{ color: "white", fontSize: 16, fontWeight: "600" }}>
@@ -124,6 +143,7 @@ export default function AddTeamScreen() {
             )}
           </TouchableOpacity>
         </View>
+        )}
       </View>
     </ScreenContainer>
   );

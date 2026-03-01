@@ -8,37 +8,61 @@ import {
   Alert,
   FlatList,
 } from "react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { router } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
-import { trpc } from "@/lib/trpc";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import type { Product } from "@/drizzle/schema";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/use-auth";
+
+type ProductOption = Product;
+type UnitOption = { id: string; abbreviation: string };
 
 export default function ProductEntryScreen() {
   const colors = useColors();
-  const utils = trpc.useUtils();
+  const { user } = useAuth();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [quantity, setQuantity] = useState("");
   const [notes, setNotes] = useState("");
+  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [units, setUnits] = useState<UnitOption[]>([]);
+  const [saving, setSaving] = useState(false);
 
-  const { data: products } = trpc.products.list.useQuery();
-  const { data: units } = trpc.units.list.useQuery();
+  useEffect(() => {
+    const loadProducts = async () => {
+      const { data } = await supabase.from("products").select("*").order("name", { ascending: true });
+      const normalized = (data ?? []).map((row: any) => ({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        categoryId: row.category_id,
+        unitId: row.unit_id,
+        currentQuantity: row.current_quantity,
+        minimumStock: row.minimum_stock,
+        unitCost: row.unit_cost,
+        maxWithdrawalLimit: row.max_withdrawal_limit,
+        photoUrl: row.photo_url,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at),
+      })) as ProductOption[];
+      setProducts(normalized);
+    };
 
-  const createMovement = trpc.movements.createEntry.useMutation({
-    onSuccess: () => {
-      Alert.alert("Sucesso", "Entrada registrada com sucesso!");
-      utils.products.list.invalidate();
-      utils.dashboard.stats.invalidate();
-      router.back();
-    },
-    onError: (error: any) => {
-      Alert.alert("Erro", error.message);
-    },
-  });
+    const loadUnits = async () => {
+      const { data } = await supabase
+        .from("units")
+        .select("id, abbreviation")
+        .order("name", { ascending: true });
+      setUnits((data ?? []) as UnitOption[]);
+    };
+
+    loadProducts();
+    loadUnits();
+  }, []);
 
   const filteredProducts = products?.filter((product) =>
     product.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -48,7 +72,7 @@ export default function ProductEntryScreen() {
     return units?.find((u) => u.id === unitId)?.abbreviation || "";
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedProduct) {
       Alert.alert("Erro", "Selecione um produto");
       return;
@@ -58,11 +82,32 @@ export default function ProductEntryScreen() {
       return;
     }
 
-    createMovement.mutate({
-      productId: selectedProduct.id,
-      quantity,
-      notes: notes.trim() || undefined,
-    });
+    if (!user?.id) {
+      Alert.alert("Erro", "Sessão inválida. Faça login novamente.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const { error } = await supabase.rpc("fn_record_movement", {
+        p_product_id: selectedProduct.id,
+        p_type: "entry",
+        p_quantity: quantity,
+        p_user_id: user.id,
+        p_notes: notes.trim() || null,
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      Alert.alert("Sucesso", "Entrada registrada com sucesso!");
+      router.back();
+    } catch (error) {
+      Alert.alert("Erro", error instanceof Error ? error.message : "Falha ao registrar entrada");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -169,10 +214,10 @@ export default function ProductEntryScreen() {
             {/* Submit Button */}
             <TouchableOpacity
               onPress={handleSubmit}
-              disabled={createMovement.isPending}
+              disabled={saving}
               className="bg-primary rounded-xl p-4 active:opacity-80 mt-4"
             >
-              {createMovement.isPending ? (
+              {saving ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
                 <Text className="text-background text-center font-semibold text-lg">
