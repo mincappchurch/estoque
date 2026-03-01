@@ -41,6 +41,29 @@ export const appRouter = router({
           user,
         };
       }),
+    listAccessCodes: protectedProcedure.query(async () => {
+      return await db.getAllAccessCodes();
+    }),
+    createAccessCode: protectedProcedure
+      .input(
+        z.object({
+          label: z.string().min(1).max(100),
+          code: z.string().min(4).max(64),
+          role: z.enum(["admin", "volunteer", "team_leader"]),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const id = await db.createAccessCode({
+          label: input.label.trim(),
+          plainCode: input.code.trim().toUpperCase(),
+          role: input.role,
+        });
+
+        return {
+          success: true,
+          id,
+        };
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });

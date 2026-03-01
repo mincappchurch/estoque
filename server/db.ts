@@ -12,6 +12,7 @@ import type {
   Unit,
   User,
 } from "../drizzle/schema";
+import { hash } from "bcryptjs";
 import { getSupabaseAdminClient } from "./_core/supabase";
 
 const UUID_REGEX =
@@ -104,6 +105,28 @@ function normalizeMovement(row: any): Movement {
     serviceTime: row.service_time,
     notes: row.notes,
     userId: row.user_id,
+    createdAt: new Date(row.created_at),
+  };
+}
+
+export type AccessCode = {
+  id: string;
+  label: string;
+  role: User["role"];
+  isActive: boolean;
+  expiresAt: Date | null;
+  lastUsedAt: Date | null;
+  createdAt: Date;
+};
+
+function normalizeAccessCode(row: any): AccessCode {
+  return {
+    id: row.id,
+    label: row.label,
+    role: row.role,
+    isActive: row.is_active,
+    expiresAt: row.expires_at ? new Date(row.expires_at) : null,
+    lastUsedAt: row.last_used_at ? new Date(row.last_used_at) : null,
     createdAt: new Date(row.created_at),
   };
 }
@@ -242,6 +265,48 @@ export async function authenticateWithAccessCode(code: string): Promise<User | n
   }
 
   return await getUserByOpenId(openId);
+}
+
+export async function getAllAccessCodes(): Promise<AccessCode[]> {
+  const db = requiredDb();
+  const { data, error } = await db
+    .from("access_codes")
+    .select("id, label, role, is_active, expires_at, last_used_at, created_at")
+    .order("created_at", { ascending: false });
+
+  if (error || !data) {
+    return [];
+  }
+
+  return data.map(normalizeAccessCode);
+}
+
+export async function createAccessCode(input: {
+  label: string;
+  plainCode: string;
+  role: User["role"];
+  expiresAt?: Date | null;
+}): Promise<string> {
+  const db = requiredDb();
+  const codeHash = await hash(input.plainCode, 10);
+
+  const { data, error } = await db
+    .from("access_codes")
+    .insert({
+      label: input.label,
+      code_hash: codeHash,
+      role: input.role,
+      is_active: true,
+      expires_at: input.expiresAt ? toIso(input.expiresAt) : null,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data?.id) {
+    throw new Error(error?.message || "Falha ao criar código de acesso");
+  }
+
+  return data.id;
 }
 
 export async function getAllCategories(): Promise<Category[]> {

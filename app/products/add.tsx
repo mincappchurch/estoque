@@ -21,15 +21,23 @@ export default function AddProductScreen() {
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
-  const [selectedUnit, setSelectedUnit] = useState<number | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
   const [currentQuantity, setCurrentQuantity] = useState("");
   const [minimumStock, setMinimumStock] = useState("");
   const [unitCost, setUnitCost] = useState("");
   const [maxWithdrawalLimit, setMaxWithdrawalLimit] = useState("");
 
-  const { data: categories } = trpc.categories.list.useQuery();
-  const { data: units } = trpc.units.list.useQuery();
+  const {
+    data: categories,
+    isLoading: categoriesLoading,
+    error: categoriesError,
+  } = trpc.categories.list.useQuery();
+  const {
+    data: units,
+    isLoading: unitsLoading,
+    error: unitsError,
+  } = trpc.units.list.useQuery();
 
   const createProduct = trpc.products.create.useMutation({
     onSuccess: () => {
@@ -120,25 +128,46 @@ export default function AddProductScreen() {
           <View className="gap-2">
             <Text className="text-sm font-medium text-foreground">Categoria *</Text>
             <View className="gap-2">
-              {categories?.map((category) => (
-                <TouchableOpacity
-                  key={category.id}
-                  onPress={() => setSelectedCategory(category.id)}
-                  className={`rounded-xl p-4 border ${
-                    selectedCategory === category.id
-                      ? "bg-primary border-primary"
-                      : "bg-surface border-border"
-                  }`}
-                >
-                  <Text
-                    className={`text-base font-medium ${
-                      selectedCategory === category.id ? "text-background" : "text-foreground"
+              {categoriesLoading ? (
+                <View className="bg-surface rounded-xl p-4 border border-border flex-row items-center gap-3">
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text className="text-sm text-muted">Carregando categorias...</Text>
+                </View>
+              ) : categoriesError ? (
+                <View className="bg-surface rounded-xl p-4 border border-warning/40">
+                  <Text className="text-sm text-warning">Erro ao carregar categorias</Text>
+                </View>
+              ) : !categories || categories.length === 0 ? (
+                <View className="bg-surface rounded-xl p-4 border border-border gap-3">
+                  <Text className="text-sm text-muted">Nenhuma categoria cadastrada.</Text>
+                  <TouchableOpacity
+                    onPress={() => router.push("/categories")}
+                    className="self-start px-4 py-2 rounded-lg bg-primary active:opacity-80"
+                  >
+                    <Text className="text-background font-medium">Cadastrar categoria</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                categories.map((category) => (
+                  <TouchableOpacity
+                    key={category.id}
+                    onPress={() => setSelectedCategory(category.id)}
+                    className={`rounded-xl p-4 border ${
+                      selectedCategory === category.id
+                        ? "bg-primary border-primary"
+                        : "bg-surface border-border"
                     }`}
                   >
-                    {category.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text
+                      className={`text-base font-medium ${
+                        selectedCategory === category.id ? "text-background" : "text-foreground"
+                      }`}
+                    >
+                      {category.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )}
             </View>
           </View>
 
@@ -146,25 +175,46 @@ export default function AddProductScreen() {
           <View className="gap-2">
             <Text className="text-sm font-medium text-foreground">Unidade de Medida *</Text>
             <View className="flex-row flex-wrap gap-2">
-              {units?.map((unit) => (
-                <TouchableOpacity
-                  key={unit.id}
-                  onPress={() => setSelectedUnit(unit.id)}
-                  className={`rounded-xl px-6 py-3 border ${
-                    selectedUnit === unit.id
-                      ? "bg-primary border-primary"
-                      : "bg-surface border-border"
-                  }`}
-                >
-                  <Text
-                    className={`text-base font-medium ${
-                      selectedUnit === unit.id ? "text-background" : "text-foreground"
+              {unitsLoading ? (
+                <View className="bg-surface rounded-xl p-4 border border-border flex-row items-center gap-3 w-full">
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text className="text-sm text-muted">Carregando unidades...</Text>
+                </View>
+              ) : unitsError ? (
+                <View className="bg-surface rounded-xl p-4 border border-warning/40 w-full">
+                  <Text className="text-sm text-warning">Erro ao carregar unidades</Text>
+                </View>
+              ) : !units || units.length === 0 ? (
+                <View className="bg-surface rounded-xl p-4 border border-border gap-3 w-full">
+                  <Text className="text-sm text-muted">Nenhuma unidade cadastrada.</Text>
+                  <TouchableOpacity
+                    onPress={() => router.push("/units")}
+                    className="self-start px-4 py-2 rounded-lg bg-primary active:opacity-80"
+                  >
+                    <Text className="text-background font-medium">Cadastrar unidade</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                units.map((unit) => (
+                  <TouchableOpacity
+                    key={unit.id}
+                    onPress={() => setSelectedUnit(unit.id)}
+                    className={`rounded-xl px-6 py-3 border ${
+                      selectedUnit === unit.id
+                        ? "bg-primary border-primary"
+                        : "bg-surface border-border"
                     }`}
                   >
-                    {unit.abbreviation}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text
+                      className={`text-base font-medium ${
+                        selectedUnit === unit.id ? "text-background" : "text-foreground"
+                      }`}
+                    >
+                      {unit.abbreviation}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )}
             </View>
           </View>
 

@@ -66,6 +66,21 @@ export default function MoreScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
+                onPress={() => router.push("/access-codes")}
+                className="bg-surface rounded-xl p-4 border border-border active:opacity-80"
+              >
+                <View className="flex-row items-center justify-between">
+                  <View className="flex-row items-center gap-3">
+                    <IconSymbol name="person.fill" size={24} color={colors.foreground} />
+                    <Text className="text-foreground font-semibold text-base">
+                      Usuários por Código
+                    </Text>
+                  </View>
+                  <IconSymbol name="chevron.right" size={20} color={colors.muted} />
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 onPress={() => router.push("/categories")}
                 className="bg-surface rounded-xl p-4 border border-border active:opacity-80"
               >
